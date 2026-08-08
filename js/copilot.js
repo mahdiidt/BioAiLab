@@ -9,16 +9,17 @@
  * Sections:
  *   1. DOM references
  *   2. Toast helper
- *   3. Conversation state (in-memory, seeded with demo data)
- *   4. Rendering (sidebar history, messages, attachments)
- *   5. Sending messages
- *   6. Suggested prompts
- *   7. File uploads (UI only)
- *   8. Voice input (UI only)
- *   9. Sidebar drawer (mobile)
- *  10. Settings panel (focus-trapped dialog)
- *  11. Theme + language toggles
- *  12. Init
+ *   3. Persistent storage (localStorage) — PHASE 3A
+ *   4. Conversation state (demo data + storage-backed load)
+ *   5. Rendering (sidebar history, messages, attachments)
+ *   6. Sending messages
+ *   7. Suggested prompts
+ *   8. File uploads (UI only)
+ *   9. Voice input (UI only)
+ *  10. Sidebar drawer (mobile)
+ *  11. Settings panel (focus-trapped dialog)
+ *  12. Theme + language toggles
+ *  13. Init
  * ---------------------------------------------------------
  */
 (function () {
@@ -79,11 +80,107 @@
   }
 
   /* =========================================================
-     3. Conversation state
-     Each conversation: { id, title, messages: [{ role, text }] }
-     This is in-memory demo data only — nothing is persisted.
+     3. Persistent storage (localStorage) — PHASE 3A
+     ---------------------------------------------------------
+     What is stored:
+       - bioai_copilot_conversations   → the full conversations array
+       - bioai_copilot_active          → the active conversation id
+       - bioai_copilot_storage_version → format version, for future migrations
+     What is NOT stored:
+       - attachments (PDF/FASTA/image picks) — these reference live
+         File objects that cannot be serialized, and are meant to be
+         session-only until a real upload/parsing backend exists.
+       - theme preference — already persisted separately under its
+         own 'bioai-copilot-theme' key (see section 12), unchanged.
+     Where this gets replaced later:
+       - Once a real backend exists, loadConversations()/saveConversations()
+         and loadActiveConversation()/saveActiveConversation() are the
+         four functions to swap for API calls (e.g. GET/POST /api/conversations).
+         Everything that calls them today can stay the same.
      ========================================================= */
-  var conversations = [
+  var STORAGE_KEY_CONVERSATIONS = 'bioai_copilot_conversations';
+  var STORAGE_KEY_ACTIVE        = 'bioai_copilot_active';
+  var STORAGE_KEY_VERSION       = 'bioai_copilot_storage_version';
+  var STORAGE_VERSION           = 1;
+
+  // Structural check only — this never trusts stored data blindly.
+  // Anything that doesn't match is treated as corrupted/unusable.
+  function isValidStoredConversations(data) {
+    if (!Array.isArray(data)) return false;
+    return data.every(function (convo) {
+      if (!convo || typeof convo !== 'object') return false;
+      if (typeof convo.id !== 'string' || !convo.id) return false;
+      if (typeof convo.title !== 'string') return false;
+      if (!Array.isArray(convo.messages)) return false;
+      return convo.messages.every(function (m) {
+        return m && typeof m === 'object' &&
+          (m.role === 'user' || m.role === 'ai') &&
+          typeof m.text === 'string';
+      });
+    });
+  }
+
+  // Returns a valid conversations array, or null if nothing usable is stored
+  // (missing, corrupted, wrong version, or localStorage unavailable).
+  function loadConversations() {
+    try {
+      var version = localStorage.getItem(STORAGE_KEY_VERSION);
+      if (version !== String(STORAGE_VERSION)) return null; // no data yet, or an old/unknown format
+
+      var raw = localStorage.getItem(STORAGE_KEY_CONVERSATIONS);
+      if (!raw) return null;
+
+      var parsed = JSON.parse(raw);
+      if (!isValidStoredConversations(parsed)) return null;
+      return parsed;
+    } catch (err) {
+      return null; // malformed JSON or storage inaccessible — fall back to demo data
+    }
+  }
+
+  function saveConversations() {
+    try {
+      localStorage.setItem(STORAGE_KEY_VERSION, String(STORAGE_VERSION));
+      localStorage.setItem(STORAGE_KEY_CONVERSATIONS, JSON.stringify(conversations));
+    } catch (err) {
+      // Quota exceeded, private-mode restrictions, etc. — keep working in memory.
+      showToast('Conversation saved for this session only.');
+    }
+  }
+
+  function loadActiveConversation() {
+    try {
+      var id = localStorage.getItem(STORAGE_KEY_ACTIVE);
+      return typeof id === 'string' && id ? id : null;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function saveActiveConversation() {
+    try {
+      if (activeId) localStorage.setItem(STORAGE_KEY_ACTIVE, activeId);
+    } catch (err) {
+      // Non-fatal — active conversation just won't be restored after refresh.
+    }
+  }
+
+  function clearStoredConversations() {
+    try {
+      localStorage.removeItem(STORAGE_KEY_CONVERSATIONS);
+      localStorage.removeItem(STORAGE_KEY_ACTIVE);
+      localStorage.removeItem(STORAGE_KEY_VERSION);
+    } catch (err) { /* nothing to do if storage is unavailable */ }
+  }
+
+  /* =========================================================
+     4. Conversation state
+     Each conversation: { id, title, messages: [{ role, text }] }
+     demoConversations is the fallback seed data — it is kept in
+     source so first-run visitors (and any user with no/invalid
+     stored data) still see a populated Bio Copilot demo.
+     ========================================================= */
+  var demoConversations = [
     { id: 'c1', title: 'CRISPR off-target risk', messages: [
       { role: 'ai', text: "Hi — I'm Bio Copilot. Paste a sequence, ask about a pathway, or upload a paper and I'll get to work." },
       { role: 'user', text: 'What raises off-target risk in a CRISPR guide RNA design?' },
@@ -111,8 +208,23 @@
     ]}
   ];
 
-  var activeId = conversations.length ? conversations[0].id : null;
-  var attachments = []; // { kind: 'pdf'|'fasta'|'image', name: string }
+  // Load from localStorage if valid data exists, otherwise fall back to
+  // the demo data above. This runs before renderHistory()/renderMessages()
+  // are ever called (see section 13), so the UI never flashes the wrong state.
+  var storedConversations = loadConversations();
+  var conversations = storedConversations || demoConversations.slice();
+
+  var storedActiveId = loadActiveConversation();
+  var activeId = null;
+  if (storedActiveId && conversations.some(function (c) { return c.id === storedActiveId; })) {
+    activeId = storedActiveId;
+  } else if (conversations.length) {
+    activeId = conversations[0].id;
+  }
+  // conversations.length === 0 leaves activeId as null; newConversation()
+  // is called at the end of init (section 13) to create a fresh one.
+
+  var attachments = []; // session-only — never persisted (see section 3)
   var isRecording = false;
 
   var placeholderReplies = [
@@ -135,7 +247,7 @@
   }
 
   /* =========================================================
-     4. Rendering
+     5. Rendering
      ========================================================= */
   function renderHistory() {
     chatHist.innerHTML = '';
@@ -259,7 +371,7 @@
   }
 
   /* =========================================================
-     5. Sending messages
+     6. Sending messages
      ========================================================= */
   function updateSendButtonState() {
     var hasText = chatInput.value.trim().length > 0;
@@ -293,6 +405,7 @@
     chatSuggested.classList.remove('hidden');
     appendBubble('user', displayText, true);
     scrollChatToBottom(true);
+    saveConversations(); // persist the user message + any auto-generated title
 
     clearAttachments();
     chatInput.value = '';
@@ -311,6 +424,7 @@
       convo.messages.push({ role: 'ai', text: reply });
       appendBubble('ai', reply, true);
       scrollChatToBottom(true);
+      saveConversations(); // persist the placeholder AI reply
     }, delay);
   }
 
@@ -336,7 +450,7 @@
   chatInput.addEventListener('blur', function () { inputGlass.classList.remove('is-focused'); });
 
   /* =========================================================
-     6. Suggested prompts (empty-state cards + chip row)
+     7. Suggested prompts (empty-state cards + chip row)
      ========================================================= */
   document.addEventListener('click', function (e) {
     var trigger = e.target.closest('[data-prompt]');
@@ -349,7 +463,7 @@
   });
 
   /* =========================================================
-     7. File uploads (UI only — no upload actually happens)
+     8. File uploads (UI only — no upload actually happens)
      ========================================================= */
   function bindUpload(button, input, kind, label) {
     button.addEventListener('click', function () { input.click(); });
@@ -369,7 +483,7 @@
   bindUpload(uploadImageBtn, fileInputImage, 'image', 'Image');
 
   /* =========================================================
-     8. Voice input (UI only — no audio is captured)
+     9. Voice input (UI only — no audio is captured)
      ========================================================= */
   voiceBtn.addEventListener('click', function () {
     isRecording = !isRecording;
@@ -381,7 +495,7 @@
   });
 
   /* =========================================================
-     9. Sidebar drawer (mobile off-canvas navigation)
+     10. Sidebar drawer (mobile off-canvas navigation)
      ========================================================= */
   function openSidebar() {
     sidebar.classList.add('open');
@@ -402,6 +516,7 @@
 
   function setActiveConversation(id) {
     activeId = id;
+    saveActiveConversation();
     renderHistory();
     renderMessages();
     if (window.matchMedia('(max-width: 900px)').matches) closeSidebar();
@@ -411,6 +526,8 @@
     var convo = { id: 'c' + Date.now(), title: 'New chat', messages: [] };
     conversations.unshift(convo);
     activeId = convo.id;
+    saveConversations();
+    saveActiveConversation();
     renderHistory();
     renderMessages();
     chatInput.focus();
@@ -425,8 +542,10 @@
     conversations.splice(index, 1);
     if (wasActive) {
       activeId = conversations.length ? conversations[0].id : null;
-      if (!activeId) { newConversation(); return; }
+      if (!activeId) { newConversation(); return; } // newConversation() already saves
     }
+    saveConversations();
+    saveActiveConversation();
     renderHistory();
     renderMessages();
     showToast('Conversation deleted');
@@ -435,7 +554,8 @@
 
   function clearAllHistory() {
     conversations = [];
-    newConversation();
+    clearStoredConversations();
+    newConversation(); // creates + saves a fresh empty conversation
     showToast('All conversations cleared');
     // BACKEND HOOK: bulk-delete all conversation records server-side.
   }
@@ -444,7 +564,7 @@
   clearHistoryBtn.addEventListener('click', clearAllHistory);
 
   /* =========================================================
-     10. Settings panel (focus-trapped dialog)
+     11. Settings panel (focus-trapped dialog)
      ========================================================= */
   var settingsTriggerEl = null;
 
@@ -497,7 +617,7 @@
   });
 
   /* =========================================================
-     11. Theme + language toggles
+     12. Theme + language toggles
      ========================================================= */
   function applyTheme(isLight) {
     document.body.classList.toggle('theme-light', isLight);
@@ -518,13 +638,20 @@
   });
 
   /* =========================================================
-     12. Init
+     13. Init
      ========================================================= */
   (function initTheme() {
     var saved = null;
     try { saved = localStorage.getItem('bioai-copilot-theme'); } catch (err) { /* storage unavailable */ }
     applyTheme(saved === 'light');
   })();
+
+  // conversations/activeId were already resolved in section 4 (from
+  // storage or demo fallback) before any rendering happens below, so
+  // the UI never briefly shows one conversation and then swaps to another.
+  if (!conversations.length) {
+    newConversation(); // creates + saves a fresh empty conversation
+  }
 
   renderHistory();
   renderMessages();
