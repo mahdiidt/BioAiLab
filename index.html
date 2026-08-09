@@ -281,8 +281,10 @@ textarea.seq-input:focus{outline:none; border-color:var(--emerald);}
 .stat-tile{padding:18px; text-align:left;}
 .stat-tile .st-label{font-family:'JetBrains Mono',monospace; font-size:10.5px; letter-spacing:1.5px; text-transform:uppercase; color:var(--ink-dim);}
 .stat-tile .st-value{font-family:'JetBrains Mono',monospace; font-size:20px; color:var(--emerald); margin-top:6px; font-weight:700; word-break:break-all;}
-.output-block{margin-top:18px; padding:18px; font-family:'JetBrains Mono',monospace; font-size:12.5px; color:var(--ink-dim); word-break:break-all; max-height:160px; overflow-y:auto;}
+.output-block{margin-top:18px; padding:18px; font-family:'JetBrains Mono',monospace; font-size:12.5px; color:var(--ink-dim); word-break:break-all; max-height:160px; overflow-y:auto; position:relative;}
 .output-block b{color:var(--cobalt); display:block; margin-bottom:6px; font-size:11px; letter-spacing:1.5px; text-transform:uppercase;}
+.output-copy-btn{position:absolute; top:14px; right:14px; background:var(--panel-2); border:1px solid var(--edge); color:var(--ink-dim); font-size:10.5px; padding:4px 10px; border-radius:100px; cursor:pointer; transition:.2s; font-family:inherit;}
+.output-copy-btn:hover{border-color:var(--emerald); color:var(--emerald);}
 .dna-validation{margin-top:14px; padding:12px 16px; border-radius:var(--r-md); background:rgba(255,176,32,.08); border:1px solid rgba(255,176,32,.35); color:#ffb020; font-size:12.5px; font-family:'JetBrains Mono',monospace;}
 .dna-frame-row{display:flex; gap:10px; align-items:baseline; padding:6px 0; border-bottom:1px solid var(--edge-soft);}
 .dna-frame-row:last-child{border-bottom:none;}
@@ -592,6 +594,7 @@ footer{padding:64px 0 34px; border-top:1px solid var(--edge-soft);}
             <button class="btn btn-ghost btn-sm" id="downloadProteinBtn">Download Report</button>
           </div>
         </div>
+        <div class="dna-validation" id="proteinValidation" hidden></div>
         <div class="analysis-grid">
           <div class="stat-tile glass"><div class="st-label">Length (aa)</div><div class="st-value" id="protLength">—</div></div>
           <div class="stat-tile glass"><div class="st-label">Molecular Weight</div><div class="st-value" id="protMw">—</div></div>
@@ -993,7 +996,17 @@ var codonTable = {
   TGT:'C',TGC:'C',TGA:'*',TGG:'W',CGT:'R',CGC:'R',CGA:'R',CGG:'R',
   AGT:'S',AGC:'S',AGA:'R',AGG:'R',GGT:'G',GGC:'G',GGA:'G',GGG:'G'
 };
-function cleanSeq(s){ return (s || '').toUpperCase().replace(/[^ACGTU]/g,'').replace(/U/g,'T'); }
+function stripFasta(raw){
+  if (!raw) return raw;
+  var lines = raw.split(/\r?\n/);
+  var out = [];
+  for (var i = 0; i < lines.length; i++){
+    if (lines[i].trim().charAt(0) === '>') continue;
+    out.push(lines[i]);
+  }
+  return out.join('\n');
+}
+function cleanSeq(s){ return stripFasta(s || '').toUpperCase().replace(/[^ACGTU]/g,'').replace(/U/g,'T'); }
 function renderProteinHtml(protein){
   var escaped = protein.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   var html = '';
@@ -1006,7 +1019,7 @@ function renderProteinHtml(protein){
   return html;
 }
 function validateSeq(raw){
-  var upper = (raw || '').toUpperCase();
+  var upper = stripFasta(raw || '').toUpperCase();
   var invalidChars = {};
   for (var i = 0; i < upper.length; i++){
     var ch = upper[i];
@@ -1120,7 +1133,19 @@ var pkaGroups = [
   {aa:'C', pka:8.3, charge:-1}, {aa:'D', pka:3.65, charge:-1}, {aa:'E', pka:4.25, charge:-1}, {aa:'Y', pka:10.07, charge:-1},
   {aa:'H', pka:6.0, charge:1}, {aa:'K', pka:10.53, charge:1}, {aa:'R', pka:12.48, charge:1}
 ];
-function cleanProt(s){ return (s || '').toUpperCase().replace(/[^ACDEFGHIKLMNPQRSTVWY]/g,''); }
+function cleanProt(s){ return stripFasta(s || '').toUpperCase().replace(/[^ACDEFGHIKLMNPQRSTVWY]/g,''); }
+function validateProtSeq(raw){
+  var upper = stripFasta(raw || '').toUpperCase();
+  var validAa = 'ACDEFGHIKLMNPQRSTVWY';
+  var invalidChars = {};
+  for (var i = 0; i < upper.length; i++){
+    var ch = upper[i];
+    if (validAa.indexOf(ch) !== -1) continue;
+    if (/\s/.test(ch)) continue;
+    invalidChars[ch] = true;
+  }
+  return Object.keys(invalidChars);
+}
 function proteinCharge(seq, pH){
   var nTermCharge = 1 / (1 + Math.pow(10, pH - 9.0));
   var cTermCharge = -1 / (1 + Math.pow(10, 2.0 - pH));
@@ -1159,7 +1184,17 @@ function predictDomains(seq){
   return hits.join('; ');
 }
 function runProteinAnalysis(){
-  var seq = cleanProt(document.getElementById('proteinInput').value);
+  var raw = document.getElementById('proteinInput').value;
+  var seq = cleanProt(raw);
+  var validationEl = document.getElementById('proteinValidation');
+  var badChars = validateProtSeq(raw);
+  if (badChars.length){
+    validationEl.hidden = false;
+    validationEl.textContent = 'Ignored ' + badChars.length + ' invalid character' + (badChars.length > 1 ? 's' : '') + ' not a standard amino acid: ' + badChars.join(', ');
+  } else {
+    validationEl.hidden = true;
+    validationEl.textContent = '';
+  }
   if (!seq){ showToast('Enter a valid protein sequence (single-letter amino acids).'); return; }
   var mw = 18.02;
   var gravySum = 0;
@@ -1190,6 +1225,28 @@ document.getElementById('downloadProteinBtn').addEventListener('click', function
   showToast('Report downloaded.');
 });
 runProteinAnalysis();
+
+/* ================= output block copy buttons ================= */
+(function outputCopyButtons(){
+  document.querySelectorAll('#panel-dna .output-block, #panel-protein .output-block').forEach(function(block){
+    if (block.querySelector('.output-copy-btn')) return;
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'output-copy-btn';
+    btn.textContent = 'Copy';
+    btn.addEventListener('click', function(){
+      var target = block.querySelector('span, div:not(.output-copy-btn)');
+      var text = target ? target.textContent : '';
+      if (!text || text === '—'){ showToast('Nothing to copy yet.'); return; }
+      if (navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(text).then(function(){ showToast('Copied to clipboard.'); }, function(){ showToast('Could not copy — select and copy manually.'); });
+      } else {
+        showToast('Clipboard not available in this browser.');
+      }
+    });
+    block.appendChild(btn);
+  });
+})();
 
 /* ================= Analyzer tabs ================= */
 document.querySelectorAll('.analyzer-tab').forEach(function(tab){
