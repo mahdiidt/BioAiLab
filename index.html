@@ -283,6 +283,15 @@ textarea.seq-input:focus{outline:none; border-color:var(--emerald);}
 .stat-tile .st-value{font-family:'JetBrains Mono',monospace; font-size:20px; color:var(--emerald); margin-top:6px; font-weight:700; word-break:break-all;}
 .output-block{margin-top:18px; padding:18px; font-family:'JetBrains Mono',monospace; font-size:12.5px; color:var(--ink-dim); word-break:break-all; max-height:160px; overflow-y:auto;}
 .output-block b{color:var(--cobalt); display:block; margin-bottom:6px; font-size:11px; letter-spacing:1.5px; text-transform:uppercase;}
+.calc-block{padding-bottom:28px; margin-bottom:28px; border-bottom:1px solid var(--edge-soft);}
+.calc-block:last-child{border-bottom:none; margin-bottom:0; padding-bottom:0;}
+.calc-block h4{font-size:15px; margin-bottom:4px;}
+.calc-note{font-size:12.5px; color:var(--ink-dim); margin-bottom:16px;}
+.calc-fields{display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:14px; margin-bottom:16px;}
+.calc-field{display:flex; flex-direction:column; gap:6px;}
+.calc-field span{font-family:'JetBrains Mono',monospace; font-size:10.5px; letter-spacing:1.5px; text-transform:uppercase; color:var(--ink-dim);}
+.calc-field input{background:var(--panel-2); border:1px solid var(--edge); border-radius:var(--r-sm); padding:11px 14px; color:var(--ink); font-family:'JetBrains Mono',monospace; font-size:14px;}
+.calc-field input:focus{outline:none; border-color:var(--emerald);}
 
 /* ---------- research ---------- */
 .research-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:22px; margin-top:16px;}
@@ -533,6 +542,7 @@ footer{padding:64px 0 34px; border-top:1px solid var(--edge-soft);}
       <button class="analyzer-tab active" data-tab="pdf">PDF Analyzer</button>
       <button class="analyzer-tab" data-tab="dna">DNA Analyzer</button>
       <button class="analyzer-tab" data-tab="protein">Protein Analyzer</button>
+      <button class="analyzer-tab" data-tab="calc">Lab Calculator</button>
     </div>
 
     <div class="glass reveal">
@@ -589,6 +599,55 @@ footer{padding:64px 0 34px; border-top:1px solid var(--edge-soft);}
           <div class="stat-tile glass"><div class="st-label">Hydrophobicity (GRAVY)</div><div class="st-value" id="protGravy">—</div></div>
         </div>
         <div class="output-block glass"><b>Predicted Domains</b><span id="protDomains">—</span></div>
+      </div>
+
+      <!-- Lab Calculator -->
+      <div class="analyzer-panel" id="panel-calc">
+        <div class="calc-block">
+          <h4>Dilution (C₁V₁ = C₂V₂)</h4>
+          <p class="calc-note">Solve for the stock volume needed to reach a target concentration and volume.</p>
+          <div class="calc-fields">
+            <label class="calc-field"><span>Stock Conc. (C₁)</span><input type="number" id="dilC1" step="any" placeholder="e.g. 100"></label>
+            <label class="calc-field"><span>Target Conc. (C₂)</span><input type="number" id="dilC2" step="any" placeholder="e.g. 10"></label>
+            <label class="calc-field"><span>Target Volume (V₂, mL)</span><input type="number" id="dilV2" step="any" placeholder="e.g. 50"></label>
+          </div>
+          <button class="btn btn-primary btn-sm" id="calcDilutionBtn">Calculate</button>
+          <div class="analysis-grid">
+            <div class="stat-tile glass"><div class="st-label">Stock Volume Needed (V₁)</div><div class="st-value" id="dilV1">—</div></div>
+            <div class="stat-tile glass"><div class="st-label">Diluent To Add</div><div class="st-value" id="dilDiluent">—</div></div>
+          </div>
+        </div>
+
+        <div class="calc-block">
+          <h4>Molarity (M = mass ÷ MW ÷ volume)</h4>
+          <p class="calc-note">Calculate the molar concentration of a solution from mass and molecular weight.</p>
+          <div class="calc-fields">
+            <label class="calc-field"><span>Mass (g)</span><input type="number" id="molMass" step="any" placeholder="e.g. 5.85"></label>
+            <label class="calc-field"><span>Molecular Weight (g/mol)</span><input type="number" id="molMw" step="any" placeholder="e.g. 58.44"></label>
+            <label class="calc-field"><span>Volume (mL)</span><input type="number" id="molVol" step="any" placeholder="e.g. 500"></label>
+          </div>
+          <button class="btn btn-primary btn-sm" id="calcMolarityBtn">Calculate</button>
+          <div class="analysis-grid">
+            <div class="stat-tile glass"><div class="st-label">Molarity</div><div class="st-value" id="molResult">—</div></div>
+          </div>
+        </div>
+
+        <div class="calc-block">
+          <h4>PCR Master Mix</h4>
+          <p class="calc-note">Scale a standard PCR reaction recipe to your number of reactions, with extra for pipetting loss.</p>
+          <div class="calc-fields">
+            <label class="calc-field"><span>Number of Reactions</span><input type="number" id="pcrCount" step="1" min="1" placeholder="e.g. 12"></label>
+            <label class="calc-field"><span>Reaction Volume (µL)</span><input type="number" id="pcrVol" step="any" placeholder="e.g. 25"></label>
+          </div>
+          <button class="btn btn-primary btn-sm" id="calcPcrBtn">Calculate</button>
+          <div class="analysis-grid" id="pcrStats">
+            <div class="stat-tile glass"><div class="st-label">2× Master Mix (½ of rxn vol)</div><div class="st-value" id="pcrMasterMix">—</div></div>
+            <div class="stat-tile glass"><div class="st-label">Forward Primer (0.5 µL/rxn)</div><div class="st-value" id="pcrFwd">—</div></div>
+            <div class="stat-tile glass"><div class="st-label">Reverse Primer (0.5 µL/rxn)</div><div class="st-value" id="pcrRev">—</div></div>
+            <div class="stat-tile glass"><div class="st-label">Template DNA (1 µL/rxn)</div><div class="st-value" id="pcrTemplate">—</div></div>
+            <div class="stat-tile glass"><div class="st-label">Nuclease-free Water</div><div class="st-value" id="pcrWater">—</div></div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -906,6 +965,27 @@ var tools = [
   {icon:'calc', name:'Lab Calculator', desc:'Dilutions, molarity, PCR mixes and buffer prep — all in one place.'}
 ];
 var toolsGrid = document.getElementById('toolsGrid');
+
+// Cards whose destination is a tab inside the existing "Lab Instruments"
+// section (#analyzers) — DNA and Protein have real, working engines there;
+// Paper Summarizer routes to the PDF tab, which is a UI/UX preview with
+// simulated results (flagged to the user via a toast, not presented as real).
+var toolAnalyzerTab = { 'DNA Analyzer': 'dna', 'Protein Analyzer': 'protein', 'Paper Summarizer': 'pdf', 'Lab Calculator': 'calc' };
+
+function scrollToAnalyzerTab(tabKey){
+  var tabBtn = document.querySelector('.analyzer-tab[data-tab="' + tabKey + '"]');
+  var target = document.getElementById('analyzers');
+  if (!tabBtn || !target) return false;
+  tabBtn.click();
+  // nav is position:sticky, so a plain scrollIntoView() lands the section
+  // top underneath it; offset by the nav's height instead.
+  var navEl = document.querySelector('nav');
+  var offset = navEl ? navEl.getBoundingClientRect().height : 0;
+  var y = target.getBoundingClientRect().top + window.pageYOffset - offset - 16;
+  window.scrollTo({top: y, behavior:'smooth'});
+  return true;
+}
+
 tools.forEach(function(t, i){
   var card = document.createElement('div');
   card.className = 'tool-card glass glass-hover grad-border reveal';
@@ -915,17 +995,20 @@ tools.forEach(function(t, i){
     '<h3>' + t.name + '</h3><p>' + t.desc + '</p>' +
     '<span class="tool-open">Open Tool →</span>';
   card.querySelector('.tool-open').addEventListener('click', function(){
-    // DNA Analyzer already has a real, working engine in the "Lab
-    // Instruments" section below (#analyzers, data-tab="dna") — route
-    // this card there instead of a placeholder toast. Every other card
-    // keeps its existing placeholder behavior, unchanged.
-    if (t.name === 'DNA Analyzer'){
-      var dnaTab = document.querySelector('.analyzer-tab[data-tab="dna"]');
-      if (dnaTab){
-        dnaTab.click();
-        document.getElementById('analyzers').scrollIntoView({behavior:'smooth', block:'start'});
-        return;
+    // Bio Copilot already has a real, working page wired to the live
+    // backend — send this card straight there instead of a placeholder toast.
+    if (t.name === 'Bio Copilot'){
+      window.location.href = 'copilot.html';
+      return;
+    }
+    // DNA Analyzer / Protein Analyzer / Paper Summarizer already have a
+    // panel in the existing "Lab Instruments" section — route there.
+    // Every other card keeps its existing placeholder behavior, unchanged.
+    if (toolAnalyzerTab[t.name] && scrollToAnalyzerTab(toolAnalyzerTab[t.name])){
+      if (t.name === 'Paper Summarizer'){
+        showToast('Paper Summarizer preview — results are simulated for now.');
       }
+      return;
     }
     showToast(t.name + ' — opening…');
   });
@@ -1133,6 +1216,50 @@ document.getElementById('downloadProteinBtn').addEventListener('click', function
   showToast('Report downloaded.');
 });
 runProteinAnalysis();
+
+/* ================= Lab Calculator (real logic, deterministic) ================= */
+function fmt(n, unit){
+  if (!isFinite(n)) return '—';
+  return (Math.round(n * 1000) / 1000) + ' ' + unit;
+}
+function runDilution(){
+  var c1 = parseFloat(document.getElementById('dilC1').value);
+  var c2 = parseFloat(document.getElementById('dilC2').value);
+  var v2 = parseFloat(document.getElementById('dilV2').value);
+  if (!c1 || !c2 || !v2 || c1 <= 0 || c2 <= 0 || v2 <= 0){ showToast('Enter positive values for C1, C2 and V2.'); return; }
+  if (c2 > c1){ showToast('Target concentration (C2) cannot exceed stock concentration (C1).'); return; }
+  var v1 = (c2 * v2) / c1;
+  document.getElementById('dilV1').textContent = fmt(v1, 'mL');
+  document.getElementById('dilDiluent').textContent = fmt(v2 - v1, 'mL');
+  showToast('Dilution calculated.');
+}
+function runMolarity(){
+  var mass = parseFloat(document.getElementById('molMass').value);
+  var mw = parseFloat(document.getElementById('molMw').value);
+  var volMl = parseFloat(document.getElementById('molVol').value);
+  if (!mass || !mw || !volMl || mass <= 0 || mw <= 0 || volMl <= 0){ showToast('Enter positive values for mass, molecular weight and volume.'); return; }
+  var molarity = (mass / mw) / (volMl / 1000);
+  document.getElementById('molResult').textContent = fmt(molarity, 'M');
+  showToast('Molarity calculated.');
+}
+function runPcrMix(){
+  var count = parseInt(document.getElementById('pcrCount').value, 10);
+  var vol = parseFloat(document.getElementById('pcrVol').value);
+  if (!count || !vol || count <= 0 || vol <= 0){ showToast('Enter a positive reaction count and reaction volume.'); return; }
+  var perRxn = { mix: vol / 2, fwd: 0.5, rev: 0.5, template: 1 };
+  perRxn.water = vol - perRxn.mix - perRxn.fwd - perRxn.rev - perRxn.template;
+  if (perRxn.water < 0){ showToast('Reaction volume is too small for the standard component amounts.'); return; }
+  var overage = count * 1.1; // 10% extra reactions' worth, to cover pipetting loss
+  document.getElementById('pcrMasterMix').textContent = fmt(perRxn.mix * overage, 'µL');
+  document.getElementById('pcrFwd').textContent = fmt(perRxn.fwd * overage, 'µL');
+  document.getElementById('pcrRev').textContent = fmt(perRxn.rev * overage, 'µL');
+  document.getElementById('pcrTemplate').textContent = fmt(perRxn.template * overage, 'µL');
+  document.getElementById('pcrWater').textContent = fmt(perRxn.water * overage, 'µL');
+  showToast('PCR mix calculated for ' + count + ' reactions (+10% overage).');
+}
+document.getElementById('calcDilutionBtn').addEventListener('click', runDilution);
+document.getElementById('calcMolarityBtn').addEventListener('click', runMolarity);
+document.getElementById('calcPcrBtn').addEventListener('click', runPcrMix);
 
 /* ================= Analyzer tabs ================= */
 document.querySelectorAll('.analyzer-tab').forEach(function(tab){
@@ -1349,78 +1476,4 @@ document.getElementById('newsletterForm').addEventListener('submit', function(e)
 
   function animate(){
     requestAnimationFrame(animate);
-    if (!reduceMotion){
-      group.rotation.y += 0.0055;
-      group.rotation.y += (targetRotY) * 0.008;
-      group.rotation.x += (targetRotX - group.rotation.x) * 0.03;
-    }
-    renderer.render(scene, camera);
-  }
-  animate();
-})();
-
-/* ================= ambient particle network ================= */
-(function particles(){
-  var canvas = document.getElementById('particle-canvas');
-  var ctx = canvas.getContext('2d');
-  var w, h, pts = [];
-  var count = reduceMotion ? 0 : (window.innerWidth < 700 ? 32 : 60);
-  function resize(){ w = canvas.width = window.innerWidth; h = canvas.height = window.innerHeight; }
-  window.addEventListener('resize', resize);
-  resize();
-  for (var i = 0; i < count; i++){
-    pts.push({x:Math.random()*w, y:Math.random()*h, vx:(Math.random()-0.5)*0.25, vy:(Math.random()-0.5)*0.25});
-  }
-  function step(){
-    ctx.clearRect(0,0,w,h);
-    for (var i = 0; i < pts.length; i++){
-      var p = pts[i];
-      p.x += p.vx; p.y += p.vy;
-      if (p.x < 0 || p.x > w) p.vx *= -1;
-      if (p.y < 0 || p.y > h) p.vy *= -1;
-      ctx.beginPath(); ctx.arc(p.x, p.y, 1.4, 0, Math.PI*2);
-      ctx.fillStyle = 'rgba(46,230,166,.5)'; ctx.fill();
-      for (var j = i+1; j < pts.length; j++){
-        var q = pts[j], dx = p.x-q.x, dy = p.y-q.y, dist = Math.sqrt(dx*dx+dy*dy);
-        if (dist < 140){
-          ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(q.x,q.y);
-          ctx.strokeStyle = 'rgba(76,141,255,' + (0.12*(1-dist/140)) + ')'; ctx.lineWidth = 1; ctx.stroke();
-        }
-      }
-    }
-    requestAnimationFrame(step);
-  }
-  if (count > 0) step();
-})();
-
-/* ================= blob parallax ================= */
-(function blobParallax(){
-  if (reduceMotion) return;
-  var blobs = document.querySelectorAll('.blob');
-  window.addEventListener('pointermove', function(e){
-    var nx = (e.clientX / window.innerWidth) - 0.5;
-    var ny = (e.clientY / window.innerHeight) - 0.5;
-    blobs.forEach(function(b){
-      var depth = parseFloat(b.getAttribute('data-depth')) || 20;
-      b.style.transform = 'translate(' + (nx*depth) + 'px,' + (ny*depth) + 'px)';
-    });
-  });
-})();
-
-/* ================= scroll reveal ================= */
-(function scrollReveal(){
-  var els = document.querySelectorAll('.reveal');
-  if (!('IntersectionObserver' in window) || reduceMotion){
-    els.forEach(function(el){ el.classList.add('in-view'); });
-    return;
-  }
-  var io = new IntersectionObserver(function(entries){
-    entries.forEach(function(entry){
-      if (entry.isIntersecting){ entry.target.classList.add('in-view'); io.unobserve(entry.target); }
-    });
-  }, {threshold:0.12, rootMargin:'0px 0px -40px 0px'});
-  els.forEach(function(el){ io.observe(el); });
-})();
-</script>
-</body>
-</html>
+    i
