@@ -227,11 +227,13 @@
   var attachments = []; // session-only — never persisted (see section 3)
   var isRecording = false;
 
-  var placeholderReplies = [
-    "This is a frontend preview — Bio Copilot isn't connected to a live model yet. Once the API is wired up, a real answer will appear here.",
-    'UI preview only: this response is a placeholder. Hook this panel up to your inference endpoint to get real answers.',
-    'No model is connected in this build. This message shows where a generated answer will render once the backend is live.'
-  ];
+  // BACKEND CONNECTED (Phase 3D): Bio Copilot now calls the real
+  // bioai-lab-backend server (see /server) instead of returning a
+  // placeholder reply. The backend origin is separate from wherever
+  // this frontend is hosted, so it's set here explicitly; the path
+  // itself still comes from chatForm's existing data-api-endpoint
+  // attribute in copilot.html.
+  var API_BASE_URL = 'https://bioailab.onrender.com';
 
   function getActiveConversation() {
     for (var i = 0; i < conversations.length; i++) {
@@ -415,17 +417,49 @@
 
     appendTypingIndicator();
 
-    // BACKEND HOOK: replace this timeout with a real request, e.g.
-    //   fetch(chatForm.dataset.apiEndpoint, { method: 'POST', body: JSON.stringify({ message: text }) })
-    var delay = 900 + Math.random() * 900;
-    setTimeout(function () {
-      removeTypingIndicator();
-      var reply = placeholderReplies[Math.floor(Math.random() * placeholderReplies.length)];
-      convo.messages.push({ role: 'ai', text: reply });
-      appendBubble('ai', reply, true);
-      scrollChatToBottom(true);
-      saveConversations(); // persist the placeholder AI reply
-    }, delay);
+    // Connected to the real backend (bioai-lab-backend). The endpoint path
+    // comes from chatForm's data-api-endpoint attribute (already declared
+    // in copilot.html as "/api/chat"); API_BASE_URL supplies the origin
+    // since the backend runs separately from the frontend in local dev.
+    var endpoint = API_BASE_URL + chatForm.dataset.apiEndpoint;
+
+    // The backend expects the full conversation as { role, content },
+    // with roles limited to 'user' | 'assistant' | 'system'. Local
+    // messages use 'ai' for the assistant, so that gets translated here.
+    var messagesForApi = convo.messages
+      .filter(function (m) { return m.text && m.text.trim().length > 0; })
+      .map(function (m) { return { role: m.role === 'user' ? 'user' : 'assistant', content: m.text }; });
+
+    fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: messagesForApi })
+    })
+      .then(function (res) {
+        return res.json().then(function (data) { return { ok: res.ok, data: data }; });
+      })
+      .then(function (result) {
+        removeTypingIndicator();
+        var reply;
+        if (!result.ok || (result.data && result.data.error)) {
+          reply = (result.data && result.data.error && result.data.error.message) ||
+            'Something went wrong reaching Bio Copilot. Please try again.';
+        } else {
+          reply = result.data.reply;
+        }
+        convo.messages.push({ role: 'ai', text: reply });
+        appendBubble('ai', reply, true);
+        scrollChatToBottom(true);
+        saveConversations(); // persist the real AI reply
+      })
+      .catch(function () {
+        removeTypingIndicator();
+        var reply = 'Could not reach the Bio Copilot server. Make sure the backend is running at ' + API_BASE_URL + '.';
+        convo.messages.push({ role: 'ai', text: reply });
+        appendBubble('ai', reply, true);
+        scrollChatToBottom(true);
+        saveConversations();
+      });
   }
 
   chatForm.addEventListener('submit', function (e) {
