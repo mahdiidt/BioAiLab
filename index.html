@@ -283,6 +283,10 @@ textarea.seq-input:focus{outline:none; border-color:var(--emerald);}
 .stat-tile .st-value{font-family:'JetBrains Mono',monospace; font-size:20px; color:var(--emerald); margin-top:6px; font-weight:700; word-break:break-all;}
 .output-block{margin-top:18px; padding:18px; font-family:'JetBrains Mono',monospace; font-size:12.5px; color:var(--ink-dim); word-break:break-all; max-height:160px; overflow-y:auto;}
 .output-block b{color:var(--cobalt); display:block; margin-bottom:6px; font-size:11px; letter-spacing:1.5px; text-transform:uppercase;}
+.dna-validation{margin-top:14px; padding:12px 16px; border-radius:var(--r-md); background:rgba(255,176,32,.08); border:1px solid rgba(255,176,32,.35); color:#ffb020; font-size:12.5px; font-family:'JetBrains Mono',monospace;}
+.dna-frame-row{display:flex; gap:10px; align-items:baseline; padding:6px 0; border-bottom:1px solid var(--edge-soft);}
+.dna-frame-row:last-child{border-bottom:none;}
+.dna-frame-label{color:var(--cobalt); font-weight:700; flex:none; width:56px;}
 
 /* ---------- research ---------- */
 .research-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:22px; margin-top:16px;}
@@ -563,14 +567,18 @@ footer{padding:64px 0 34px; border-top:1px solid var(--edge-soft);}
             <button class="btn btn-ghost btn-sm" id="downloadDnaBtn">Download Report</button>
           </div>
         </div>
+        <div class="dna-validation" id="dnaValidation" hidden></div>
         <div class="analysis-grid" id="dnaStats">
           <div class="stat-tile glass"><div class="st-label">Length</div><div class="st-value" id="dnaLength">—</div></div>
           <div class="stat-tile glass"><div class="st-label">GC Content</div><div class="st-value" id="dnaGc">—</div></div>
+          <div class="stat-tile glass"><div class="st-label">AT Content</div><div class="st-value" id="dnaAt">—</div></div>
           <div class="stat-tile glass"><div class="st-label">A / T / G / C</div><div class="st-value" id="dnaComp">—</div></div>
           <div class="stat-tile glass"><div class="st-label">ORFs Found</div><div class="st-value" id="dnaOrf">—</div></div>
         </div>
+        <div class="output-block glass"><b>mRNA (Transcription)</b><span id="dnaRna">—</span></div>
         <div class="output-block glass"><b>Protein Translation</b><span id="dnaProtein">—</span></div>
         <div class="output-block glass"><b>Reverse Complement</b><span id="dnaRevcomp">—</span></div>
+        <div class="output-block glass" id="dnaFramesBlock"><b>Reading Frames (ORFs by frame)</b><div id="dnaFrames">—</div></div>
       </div>
 
       <!-- Protein Analyzer -->
@@ -973,6 +981,18 @@ var codonTable = {
   AGT:'S',AGC:'S',AGA:'R',AGG:'R',GGT:'G',GGC:'G',GGA:'G',GGG:'G'
 };
 function cleanSeq(s){ return (s || '').toUpperCase().replace(/[^ACGTU]/g,'').replace(/U/g,'T'); }
+function validateSeq(raw){
+  var upper = (raw || '').toUpperCase();
+  var invalidChars = {};
+  for (var i = 0; i < upper.length; i++){
+    var ch = upper[i];
+    if (ch === 'A' || ch === 'C' || ch === 'G' || ch === 'T' || ch === 'U') continue;
+    if (/\s/.test(ch)) continue;
+    invalidChars[ch] = true;
+  }
+  return Object.keys(invalidChars);
+}
+function transcribeRna(seq){ return seq.replace(/T/g,'U'); }
 function reverseComplement(seq){
   var map = {A:'T',T:'A',G:'C',C:'G'};
   var out = '';
@@ -1011,17 +1031,41 @@ function findOrfs(seq){
 function runDnaAnalysis(){
   var raw = document.getElementById('dnaInput').value;
   var seq = cleanSeq(raw);
+  var validationEl = document.getElementById('dnaValidation');
+  var badChars = validateSeq(raw);
+  if (badChars.length){
+    validationEl.hidden = false;
+    validationEl.textContent = 'Ignored ' + badChars.length + ' invalid character' + (badChars.length > 1 ? 's' : '') + ' not in A/C/G/T/U: ' + badChars.join(', ');
+  } else {
+    validationEl.hidden = true;
+    validationEl.textContent = '';
+  }
   if (!seq){ showToast('Enter a valid DNA sequence (A, C, G, T).'); return; }
   var counts = {A:0,C:0,G:0,T:0};
   for (var i = 0; i < seq.length; i++) counts[seq[i]] = (counts[seq[i]]||0) + 1;
   var gc = ((counts.G + counts.C) / seq.length * 100).toFixed(1);
+  var at = ((counts.A + counts.T) / seq.length * 100).toFixed(1);
   document.getElementById('dnaLength').textContent = seq.length + ' bp';
   document.getElementById('dnaGc').textContent = gc + '%';
+  document.getElementById('dnaAt').textContent = at + '%';
   document.getElementById('dnaComp').textContent = counts.A+' / '+counts.T+' / '+counts.G+' / '+counts.C;
+  document.getElementById('dnaRna').textContent = transcribeRna(seq);
   var orfs = findOrfs(seq);
   document.getElementById('dnaOrf').textContent = orfs.length;
   document.getElementById('dnaProtein').textContent = translate(seq) + (seq.length % 3 !== 0 ? '  (sequence length not a multiple of 3 — last partial codon dropped)' : '');
   document.getElementById('dnaRevcomp').textContent = reverseComplement(seq);
+  var framesEl = document.getElementById('dnaFrames');
+  framesEl.innerHTML = '';
+  for (var f = 1; f <= 3; f++){
+    var frameOrfs = orfs.filter(function(o){ return o.frame === f; });
+    var row = document.createElement('div');
+    row.className = 'dna-frame-row';
+    var summary = frameOrfs.length
+      ? frameOrfs.map(function(o){ return o.start + '–' + o.end + ' (' + o.len + ' bp)'; }).join(', ')
+      : 'No ORFs';
+    row.innerHTML = '<span class="dna-frame-label">Frame ' + f + '</span><span>' + summary + '</span>';
+    framesEl.appendChild(row);
+  }
   showToast('DNA analysis complete — ' + orfs.length + ' ORF(s) found.');
 }
 document.getElementById('analyzeDnaBtn').addEventListener('click', runDnaAnalysis);
@@ -1031,7 +1075,9 @@ document.getElementById('downloadDnaBtn').addEventListener('click', function(){
   var report = 'BioAI Lab — DNA Analysis Report\n' + '='.repeat(34) +
     '\nLength: ' + seq.length + ' bp' +
     '\nGC Content: ' + document.getElementById('dnaGc').textContent +
+    '\nAT Content: ' + document.getElementById('dnaAt').textContent +
     '\nComposition (A/T/G/C): ' + document.getElementById('dnaComp').textContent +
+    '\nmRNA (transcription): ' + document.getElementById('dnaRna').textContent +
     '\nORFs found: ' + document.getElementById('dnaOrf').textContent +
     '\nProtein translation: ' + document.getElementById('dnaProtein').textContent +
     '\nReverse complement: ' + document.getElementById('dnaRevcomp').textContent + '\n';
