@@ -287,6 +287,8 @@ textarea.seq-input:focus{outline:none; border-color:var(--emerald);}
 .dna-frame-row{display:flex; gap:10px; align-items:baseline; padding:6px 0; border-bottom:1px solid var(--edge-soft);}
 .dna-frame-row:last-child{border-bottom:none;}
 .dna-frame-label{color:var(--cobalt); font-weight:700; flex:none; width:56px;}
+.codon-start{color:var(--emerald); font-weight:700; background:rgba(46,230,166,.14); border-radius:3px; padding:0 2px;}
+.codon-stop{color:#ff5c7c; font-weight:700; background:rgba(255,92,124,.14); border-radius:3px; padding:0 2px;}
 
 /* ---------- research ---------- */
 .research-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:22px; margin-top:16px;}
@@ -922,7 +924,18 @@ tools.forEach(function(t, i){
     '<div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7">' + toolIcons[t.icon] + '</svg></div>' +
     '<h3>' + t.name + '</h3><p>' + t.desc + '</p>' +
     '<span class="tool-open">Open Tool →</span>';
-  card.querySelector('.tool-open').addEventListener('click', function(){ showToast(t.name + ' — opening…'); });
+  var analyzerTabMap = {'DNA Analyzer':'dna', 'Protein Analyzer':'protein'};
+  card.querySelector('.tool-open').addEventListener('click', function(){
+    var mappedTab = analyzerTabMap[t.name];
+    if (mappedTab){
+      var targetTabBtn = document.querySelector('.analyzer-tab[data-tab="' + mappedTab + '"]');
+      if (targetTabBtn) targetTabBtn.click();
+      var analyzersSection = document.getElementById('analyzers');
+      if (analyzersSection) analyzersSection.scrollIntoView({behavior: reduceMotion ? 'auto' : 'smooth', block: 'start'});
+    } else {
+      showToast(t.name + ' — opening…');
+    }
+  });
   toolsGrid.appendChild(card);
 });
 
@@ -981,6 +994,17 @@ var codonTable = {
   AGT:'S',AGC:'S',AGA:'R',AGG:'R',GGT:'G',GGC:'G',GGA:'G',GGG:'G'
 };
 function cleanSeq(s){ return (s || '').toUpperCase().replace(/[^ACGTU]/g,'').replace(/U/g,'T'); }
+function renderProteinHtml(protein){
+  var escaped = protein.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  var html = '';
+  for (var i = 0; i < escaped.length; i++){
+    var ch = escaped[i];
+    if (ch === 'M' && i === 0) html += '<span class="codon-start" title="Start codon (M)">' + ch + '</span>';
+    else if (ch === '*') html += '<span class="codon-stop" title="Stop codon">' + ch + '</span>';
+    else html += ch;
+  }
+  return html;
+}
 function validateSeq(raw){
   var upper = (raw || '').toUpperCase();
   var invalidChars = {};
@@ -1052,7 +1076,8 @@ function runDnaAnalysis(){
   document.getElementById('dnaRna').textContent = transcribeRna(seq);
   var orfs = findOrfs(seq);
   document.getElementById('dnaOrf').textContent = orfs.length;
-  document.getElementById('dnaProtein').textContent = translate(seq) + (seq.length % 3 !== 0 ? '  (sequence length not a multiple of 3 — last partial codon dropped)' : '');
+  var proteinSeq = translate(seq);
+  document.getElementById('dnaProtein').innerHTML = renderProteinHtml(proteinSeq) + (seq.length % 3 !== 0 ? '  (sequence length not a multiple of 3 — last partial codon dropped)' : '');
   document.getElementById('dnaRevcomp').textContent = reverseComplement(seq);
   var framesEl = document.getElementById('dnaFrames');
   framesEl.innerHTML = '';
