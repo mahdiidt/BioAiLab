@@ -292,6 +292,10 @@ textarea.seq-input:focus{outline:none; border-color:var(--emerald);}
 .calc-field span{font-family:'JetBrains Mono',monospace; font-size:10.5px; letter-spacing:1.5px; text-transform:uppercase; color:var(--ink-dim);}
 .calc-field input{background:var(--panel-2); border:1px solid var(--edge); border-radius:var(--r-sm); padding:11px 14px; color:var(--ink); font-family:'JetBrains Mono',monospace; font-size:14px;}
 .calc-field input:focus{outline:none; border-color:var(--emerald);}
+.calc-field select{background:var(--panel-2); border:1px solid var(--edge); border-radius:var(--r-sm); padding:11px 14px; color:var(--ink); font-family:'JetBrains Mono',monospace; font-size:14px;}
+.calc-field select:focus{outline:none; border-color:var(--emerald);}
+.copy-row{display:flex; align-items:flex-start; gap:12px; flex-wrap:wrap;}
+.copy-row .output-block{flex:1 1 260px; margin-top:0;}
 
 /* ---------- research ---------- */
 .research-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:22px; margin-top:16px;}
@@ -543,6 +547,8 @@ footer{padding:64px 0 34px; border-top:1px solid var(--edge-soft);}
       <button class="analyzer-tab" data-tab="dna">DNA Analyzer</button>
       <button class="analyzer-tab" data-tab="protein">Protein Analyzer</button>
       <button class="analyzer-tab" data-tab="calc">Lab Calculator</button>
+      <button class="analyzer-tab" data-tab="primer">Primer Designer</button>
+      <button class="analyzer-tab" data-tab="citation">Citation Generator</button>
     </div>
 
     <div class="glass reveal">
@@ -647,6 +653,48 @@ footer{padding:64px 0 34px; border-top:1px solid var(--edge-soft);}
             <div class="stat-tile glass"><div class="st-label">Template DNA (1 µL/rxn)</div><div class="st-value" id="pcrTemplate">—</div></div>
             <div class="stat-tile glass"><div class="st-label">Nuclease-free Water</div><div class="st-value" id="pcrWater">—</div></div>
           </div>
+        </div>
+      </div>
+
+      <!-- Primer Designer -->
+      <div class="analyzer-panel" id="panel-primer">
+        <div class="seq-input-row">
+          <textarea class="seq-input mono" id="primerInput" spellcheck="false" placeholder="Paste the DNA sequence to design primers from">ATGGCCATTGTAATGGGCCGCTGAAAGGGTGCCCGATAGCTAGCTAGGATCCGGAATTCCAAGCTTATGCGT</textarea>
+          <div class="seq-actions">
+            <label class="calc-field"><span>Primer Length (nt)</span><input type="number" id="primerLen" value="20" min="15" max="30" step="1"></label>
+            <button class="btn btn-primary btn-sm" id="calcPrimerBtn">Design Primers</button>
+          </div>
+        </div>
+        <div class="copy-row" style="margin-top:20px;">
+          <div class="output-block glass"><b>Forward Primer</b><span id="primerFwdSeq">—</span><br><span id="primerFwdStats" style="color:var(--ink-dim); font-size:11.5px;"></span></div>
+          <div class="output-block glass"><b>Reverse Primer</b><span id="primerRevSeq">—</span><br><span id="primerRevStats" style="color:var(--ink-dim); font-size:11.5px;"></span></div>
+        </div>
+        <div class="output-block glass"><b>Notes</b><span id="primerWarnings">Design primers to see recommendations here.</span></div>
+      </div>
+
+      <!-- Citation Generator -->
+      <div class="analyzer-panel" id="panel-citation">
+        <div class="calc-fields">
+          <label class="calc-field"><span>Author(s)</span><input type="text" id="citAuthor" placeholder="e.g. Doudna, J. A., & Charpentier, E."></label>
+          <label class="calc-field"><span>Title</span><input type="text" id="citTitle" placeholder="Article or paper title"></label>
+          <label class="calc-field"><span>Journal / Source</span><input type="text" id="citJournal" placeholder="e.g. Science"></label>
+          <label class="calc-field"><span>Year</span><input type="number" id="citYear" step="1" placeholder="e.g. 2012"></label>
+          <label class="calc-field"><span>Volume</span><input type="text" id="citVolume" placeholder="e.g. 337"></label>
+          <label class="calc-field"><span>Issue</span><input type="text" id="citIssue" placeholder="e.g. 6096"></label>
+          <label class="calc-field"><span>Pages</span><input type="text" id="citPages" placeholder="e.g. 816-821"></label>
+          <label class="calc-field"><span>DOI (optional)</span><input type="text" id="citDoi" placeholder="e.g. 10.1126/science.1225829"></label>
+          <label class="calc-field"><span>Citation Style</span>
+            <select id="citStyle">
+              <option value="apa">APA</option>
+              <option value="mla">MLA</option>
+              <option value="vancouver">Vancouver</option>
+            </select>
+          </label>
+        </div>
+        <button class="btn btn-primary btn-sm" id="calcCitationBtn">Generate Citation</button>
+        <div class="copy-row" style="margin-top:18px;">
+          <div class="output-block glass"><b>Formatted Citation</b><span id="citOutput">—</span></div>
+          <button class="btn btn-ghost btn-sm" id="citCopyBtn">Copy</button>
         </div>
       </div>
     </div>
@@ -970,7 +1018,7 @@ var toolsGrid = document.getElementById('toolsGrid');
 // section (#analyzers) — DNA and Protein have real, working engines there;
 // Paper Summarizer routes to the PDF tab, which is a UI/UX preview with
 // simulated results (flagged to the user via a toast, not presented as real).
-var toolAnalyzerTab = { 'DNA Analyzer': 'dna', 'Protein Analyzer': 'protein', 'Paper Summarizer': 'pdf', 'Lab Calculator': 'calc' };
+var toolAnalyzerTab = { 'DNA Analyzer': 'dna', 'Protein Analyzer': 'protein', 'Paper Summarizer': 'pdf', 'Lab Calculator': 'calc', 'Primer Designer': 'primer', 'Citation Generator': 'citation' };
 
 function scrollToAnalyzerTab(tabKey){
   var tabBtn = document.querySelector('.analyzer-tab[data-tab="' + tabKey + '"]');
@@ -1260,6 +1308,76 @@ function runPcrMix(){
 document.getElementById('calcDilutionBtn').addEventListener('click', runDilution);
 document.getElementById('calcMolarityBtn').addEventListener('click', runMolarity);
 document.getElementById('calcPcrBtn').addEventListener('click', runPcrMix);
+
+/* ================= Primer Designer (real logic, reuses DNA utilities) ================= */
+function primerStats(p){
+  var gc = (p.match(/[GC]/g) || []).length;
+  var gcPct = p.length ? (gc / p.length * 100) : 0;
+  var tm = p.length ? (64.9 + 41 * (gc - 16.4) / p.length) : 0;
+  return { seq: p, len: p.length, gc: gcPct, tm: tm };
+}
+function runPrimerDesign(){
+  var seq = cleanSeq(document.getElementById('primerInput').value);
+  var len = parseInt(document.getElementById('primerLen').value, 10) || 20;
+  if (len < 15 || len > 30){ showToast('Primer length should be between 15 and 30 nt.'); return; }
+  if (seq.length < len * 2){ showToast('Sequence must be at least twice the primer length.'); return; }
+
+  var f = primerStats(seq.slice(0, len));
+  var r = primerStats(reverseComplement(seq.slice(seq.length - len)));
+
+  document.getElementById('primerFwdSeq').textContent = f.seq;
+  document.getElementById('primerFwdStats').textContent = f.len + ' nt · GC ' + f.gc.toFixed(1) + '% · Tm ' + f.tm.toFixed(1) + '°C';
+  document.getElementById('primerRevSeq').textContent = r.seq;
+  document.getElementById('primerRevStats').textContent = r.len + ' nt · GC ' + r.gc.toFixed(1) + '% · Tm ' + r.tm.toFixed(1) + '°C';
+
+  var warnings = [];
+  if (Math.abs(f.tm - r.tm) > 2) warnings.push('Tm difference exceeds 2°C — consider adjusting primer length.');
+  if (f.gc < 40 || f.gc > 60) warnings.push('Forward primer GC% is outside the recommended 40–60% range.');
+  if (r.gc < 40 || r.gc > 60) warnings.push('Reverse primer GC% is outside the recommended 40–60% range.');
+  document.getElementById('primerWarnings').textContent = warnings.length ? warnings.join(' ') : 'Both primers fall within recommended length, GC% and Tm-match ranges.';
+  showToast('Primers designed.');
+}
+document.getElementById('calcPrimerBtn').addEventListener('click', runPrimerDesign);
+
+/* ================= Citation Generator (real logic, deterministic formatting) ================= */
+function runCitationGen(){
+  var author = document.getElementById('citAuthor').value.trim();
+  var title = document.getElementById('citTitle').value.trim();
+  var journal = document.getElementById('citJournal').value.trim();
+  var year = document.getElementById('citYear').value.trim();
+  var volume = document.getElementById('citVolume').value.trim();
+  var issue = document.getElementById('citIssue').value.trim();
+  var pages = document.getElementById('citPages').value.trim();
+  var doi = document.getElementById('citDoi').value.trim();
+  var style = document.getElementById('citStyle').value;
+
+  if (!author || !title || !year){ showToast('Author, title and year are required.'); return; }
+
+  var out;
+  if (style === 'apa'){
+    out = author + ' (' + year + '). ' + title + '.';
+    if (journal) out += ' ' + journal + (volume ? ', ' + volume : '') + (issue ? '(' + issue + ')' : '') + (pages ? ', ' + pages : '') + '.';
+    if (doi) out += ' https://doi.org/' + doi;
+  } else if (style === 'mla'){
+    out = author + '. "' + title + '." ' + (journal ? journal + ', ' : '') + (volume ? 'vol. ' + volume + ', ' : '') + (issue ? 'no. ' + issue + ', ' : '') + year + (pages ? ', pp. ' + pages : '') + '.';
+    if (doi) out += ' DOI: ' + doi + '.';
+  } else {
+    out = author + '. ' + title + '. ' + (journal ? journal + '. ' : '') + year + (volume ? ';' + volume : '') + (issue ? '(' + issue + ')' : '') + (pages ? ':' + pages : '') + '.';
+    if (doi) out += ' doi:' + doi;
+  }
+  document.getElementById('citOutput').textContent = out;
+  showToast('Citation generated.');
+}
+document.getElementById('calcCitationBtn').addEventListener('click', runCitationGen);
+document.getElementById('citCopyBtn').addEventListener('click', function(){
+  var text = document.getElementById('citOutput').textContent;
+  if (!text || text === '—'){ showToast('Generate a citation first.'); return; }
+  navigator.clipboard.writeText(text).then(function(){
+    showToast('Copied to clipboard.');
+  }).catch(function(){
+    showToast('Could not copy automatically — select and copy the text manually.');
+  });
+});
 
 /* ================= Analyzer tabs ================= */
 document.querySelectorAll('.analyzer-tab').forEach(function(tab){
