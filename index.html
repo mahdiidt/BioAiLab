@@ -283,10 +283,6 @@ textarea.seq-input:focus{outline:none; border-color:var(--emerald);}
 .stat-tile .st-value{font-family:'JetBrains Mono',monospace; font-size:20px; color:var(--emerald); margin-top:6px; font-weight:700; word-break:break-all;}
 .output-block{margin-top:18px; padding:18px; font-family:'JetBrains Mono',monospace; font-size:12.5px; color:var(--ink-dim); word-break:break-all; max-height:160px; overflow-y:auto;}
 .output-block b{color:var(--cobalt); display:block; margin-bottom:6px; font-size:11px; letter-spacing:1.5px; text-transform:uppercase;}
-.align-display{max-height:none;}
-.align-pre{white-space:pre; overflow-x:auto; font-family:'JetBrains Mono',monospace; font-size:12px; line-height:1.7; color:var(--ink-dim); margin:0;}
-.align-pre .align-match{color:var(--emerald);}
-.align-pre .align-gap{color:var(--danger);}
 .calc-block{padding-bottom:28px; margin-bottom:28px; border-bottom:1px solid var(--edge-soft);}
 .calc-block:last-child{border-bottom:none; margin-bottom:0; padding-bottom:0;}
 .calc-block h4{font-size:15px; margin-bottom:4px;}
@@ -515,7 +511,6 @@ footer{padding:64px 0 34px; border-top:1px solid var(--edge-soft);}
       <button class="analyzer-tab" data-tab="calc">Lab Calculator</button>
       <button class="analyzer-tab" data-tab="primer">Primer Designer</button>
       <button class="analyzer-tab" data-tab="citation">Citation Generator</button>
-      <button class="analyzer-tab" data-tab="align">Sequence Alignment</button>
     </div>
 
     <div class="glass reveal">
@@ -663,36 +658,6 @@ footer{padding:64px 0 34px; border-top:1px solid var(--edge-soft);}
           <div class="output-block glass"><b>Formatted Citation</b><span id="citOutput">—</span></div>
           <button class="btn btn-ghost btn-sm" id="citCopyBtn">Copy</button>
         </div>
-      </div>
-
-      <!-- Sequence Alignment -->
-      <div class="analyzer-panel" id="panel-align">
-        <div class="seq-input-row">
-          <textarea class="seq-input mono" id="alignSeqA" spellcheck="false" placeholder="Sequence A — DNA or protein">ATGGCCATTGTAATGGGCCGCTGA</textarea>
-        </div>
-        <div class="seq-input-row" style="margin-top:12px;">
-          <textarea class="seq-input mono" id="alignSeqB" spellcheck="false" placeholder="Sequence B — DNA or protein">ATGCCATTGTAATGGGCCCGCTGA</textarea>
-        </div>
-        <div class="calc-fields" style="margin-top:16px;">
-          <label class="calc-field"><span>Sequence Type</span>
-            <select id="alignType">
-              <option value="auto">Auto-detect</option>
-              <option value="dna">DNA</option>
-              <option value="protein">Protein</option>
-            </select>
-          </label>
-          <label class="calc-field"><span>Match Score</span><input type="number" id="alignMatch" value="1" step="1"></label>
-          <label class="calc-field"><span>Mismatch Penalty</span><input type="number" id="alignMismatch" value="-1" step="1"></label>
-          <label class="calc-field"><span>Gap Penalty</span><input type="number" id="alignGap" value="-2" step="1"></label>
-        </div>
-        <button class="btn btn-primary btn-sm" id="alignBtn">Align Sequences</button>
-        <div class="analysis-grid" id="alignStats">
-          <div class="stat-tile glass"><div class="st-label">Alignment Score</div><div class="st-value" id="alignScore">—</div></div>
-          <div class="stat-tile glass"><div class="st-label">Identity</div><div class="st-value" id="alignIdentity">—</div></div>
-          <div class="stat-tile glass"><div class="st-label">Aligned Length</div><div class="st-value" id="alignLength">—</div></div>
-          <div class="stat-tile glass"><div class="st-label">Detected Type</div><div class="st-value" id="alignDetectedType">—</div></div>
-        </div>
-        <div class="output-block glass align-display"><b>Global Alignment (Needleman-Wunsch)</b><pre id="alignOutput" class="align-pre">Align two sequences to see the result here.</pre></div>
       </div>
     </div>
   </div>
@@ -980,7 +945,7 @@ var tools = [
   {icon:'paper', name:'Paper Summarizer', desc:'Turn a 40-page PDF into a five-line summary you can trust.'},
   {icon:'translate', name:'Scientific Translator', desc:'Translate papers and abstracts without losing technical meaning.'},
   {icon:'gene', name:'Gene Explorer', desc:'Search, browse and annotate genes across reference genomes.'},
-  {icon:'align', name:'Sequence Alignment', desc:'Pairwise global alignment (Needleman-Wunsch) with a live identity score.'},
+  {icon:'align', name:'Sequence Alignment', desc:'Multiple sequence alignment with similarity scoring, visualized.'},
   {icon:'primer', name:'Primer Designer', desc:'Design PCR primers with melting temperature and GC checks built in.'},
   {icon:'blast', name:'BLAST Search', desc:'Find homologous sequences across public databases in seconds.'},
   {icon:'assist', name:'Research Assistant', desc:'Literature review, hypothesis testing and citation tracking.'},
@@ -995,7 +960,7 @@ var toolsGrid = document.getElementById('toolsGrid');
 // section (#analyzers) — DNA and Protein have real, working engines there;
 // Paper Summarizer routes to the PDF tab, which is a UI/UX preview with
 // simulated results (flagged to the user via a toast, not presented as real).
-var toolAnalyzerTab = { 'DNA Analyzer': 'dna', 'Protein Analyzer': 'protein', 'Paper Summarizer': 'pdf', 'Lab Calculator': 'calc', 'Primer Designer': 'primer', 'Citation Generator': 'citation', 'Sequence Alignment': 'align' };
+var toolAnalyzerTab = { 'DNA Analyzer': 'dna', 'Protein Analyzer': 'protein', 'Paper Summarizer': 'pdf', 'Lab Calculator': 'calc', 'Primer Designer': 'primer', 'Citation Generator': 'citation' };
 
 function scrollToAnalyzerTab(tabKey){
   var tabBtn = document.querySelector('.analyzer-tab[data-tab="' + tabKey + '"]');
@@ -1335,94 +1300,6 @@ document.getElementById('citCopyBtn').addEventListener('click', function(){
     showToast('Could not copy automatically — select and copy the text manually.');
   });
 });
-
-/* ================= Sequence Alignment (real logic, Needleman-Wunsch global alignment) ================= */
-function detectSeqType(raw){
-  var s = (raw || '').toUpperCase().replace(/\s/g,'');
-  if (!s) return 'dna';
-  var dnaChars = (s.match(/[ACGTU]/g) || []).length;
-  return (dnaChars / s.length > 0.9) ? 'dna' : 'protein';
-}
-function needlemanWunsch(a, b, matchScore, mismatchScore, gapScore){
-  var n = a.length, m = b.length;
-  var score = [];
-  for (var i = 0; i <= n; i++){
-    score[i] = new Array(m + 1).fill(0);
-    score[i][0] = i * gapScore;
-  }
-  for (var j = 0; j <= m; j++) score[0][j] = j * gapScore;
-
-  for (i = 1; i <= n; i++){
-    for (j = 1; j <= m; j++){
-      var diag = score[i-1][j-1] + (a[i-1] === b[j-1] ? matchScore : mismatchScore);
-      var up = score[i-1][j] + gapScore;
-      var left = score[i][j-1] + gapScore;
-      score[i][j] = Math.max(diag, up, left);
-    }
-  }
-
-  // traceback
-  var alignedA = '', alignedB = '';
-  i = n; j = m;
-  while (i > 0 || j > 0){
-    if (i > 0 && j > 0){
-      var diagScore = score[i-1][j-1] + (a[i-1] === b[j-1] ? matchScore : mismatchScore);
-      if (score[i][j] === diagScore){
-        alignedA = a[i-1] + alignedA; alignedB = b[j-1] + alignedB;
-        i--; j--; continue;
-      }
-    }
-    if (i > 0 && score[i][j] === score[i-1][j] + gapScore){
-      alignedA = a[i-1] + alignedA; alignedB = '-' + alignedB;
-      i--; continue;
-    }
-    alignedA = '-' + alignedA; alignedB = b[j-1] + alignedB;
-    j--;
-  }
-  return { alignedA: alignedA, alignedB: alignedB, score: score[n][m] };
-}
-function runAlignment(){
-  var rawA = document.getElementById('alignSeqA').value;
-  var rawB = document.getElementById('alignSeqB').value;
-  var typeChoice = document.getElementById('alignType').value;
-  var matchScore = parseFloat(document.getElementById('alignMatch').value);
-  var mismatchScore = parseFloat(document.getElementById('alignMismatch').value);
-  var gapScore = parseFloat(document.getElementById('alignGap').value);
-  if ([matchScore, mismatchScore, gapScore].some(isNaN)){ showToast('Match, mismatch and gap scores must be numbers.'); return; }
-
-  var type = typeChoice === 'auto' ? detectSeqType(rawA + rawB) : typeChoice;
-  var a = type === 'dna' ? cleanSeq(rawA) : cleanProt(rawA);
-  var b = type === 'dna' ? cleanSeq(rawB) : cleanProt(rawB);
-  if (!a || !b){ showToast('Enter two valid sequences (' + (type === 'dna' ? 'A, C, G, T' : 'standard amino acid letters') + ').'); return; }
-  var MAX_LEN = 400;
-  if (a.length > MAX_LEN || b.length > MAX_LEN){ showToast('Sequences must be ' + MAX_LEN + ' characters or fewer for in-browser alignment.'); return; }
-
-  var result = needlemanWunsch(a, b, matchScore, mismatchScore, gapScore);
-  var matches = 0, matchLine = '';
-  for (var k = 0; k < result.alignedA.length; k++){
-    if (result.alignedA[k] === '-' || result.alignedB[k] === '-'){ matchLine += ' '; }
-    else if (result.alignedA[k] === result.alignedB[k]){ matchLine += '|'; matches++; }
-    else { matchLine += '.'; }
-  }
-  var identity = (matches / result.alignedA.length * 100).toFixed(1);
-
-  document.getElementById('alignScore').textContent = result.score;
-  document.getElementById('alignIdentity').textContent = identity + '%';
-  document.getElementById('alignLength').textContent = result.alignedA.length;
-  document.getElementById('alignDetectedType').textContent = type === 'dna' ? 'DNA' : 'Protein';
-
-  var lineWidth = 60;
-  var blocks = [];
-  for (var start = 0; start < result.alignedA.length; start += lineWidth){
-    var chunkA = result.alignedA.slice(start, start + lineWidth);
-    var chunkM = matchLine.slice(start, start + lineWidth);
-    var chunkB = result.alignedB.slice(start, start + lineWidth);
-    blocks.push('A: ' + chunkA + '\n   ' + chunkM + '\nB: ' + chunkB);
-  }
-  document.getElementById('alignOutput').textContent = blocks.join('\n\n');
-  showToast('Alignment complete — ' + identity + '% identity.');
-}
-document.getElementById('alignBtn').addEventListener('click', runAlignment);
 
 /* ================= Analyzer tabs ================= */
 document.querySelectorAll('.analyzer-tab').forEach(function(tab){
