@@ -1322,4 +1322,335 @@ function runCitationGen(){
     out = author + '. ' + title + '. ' + (journal ? journal + '. ' : '') + year + (volume ? ';' + volume : '') + (issue ? '(' + issue + ')' : '') + (pages ? ':' + pages : '') + '.';
     if (doi) out += ' doi:' + doi;
   }
-  document.ge
+  document.getElementById('citOutput').textContent = out;
+  showToast('Citation generated.');
+}
+document.getElementById('calcCitationBtn').addEventListener('click', runCitationGen);
+document.getElementById('citCopyBtn').addEventListener('click', function(){
+  var text = document.getElementById('citOutput').textContent;
+  if (!text || text === '—'){ showToast('Generate a citation first.'); return; }
+  navigator.clipboard.writeText(text).then(function(){
+    showToast('Copied to clipboard.');
+  }).catch(function(){
+    showToast('Could not copy automatically — select and copy the text manually.');
+  });
+});
+
+/* ================= Sequence Alignment (real logic, Needleman-Wunsch global alignment) ================= */
+function detectSeqType(raw){
+  var s = (raw || '').toUpperCase().replace(/\s/g,'');
+  if (!s) return 'dna';
+  var dnaChars = (s.match(/[ACGTU]/g) || []).length;
+  return (dnaChars / s.length > 0.9) ? 'dna' : 'protein';
+}
+function needlemanWunsch(a, b, matchScore, mismatchScore, gapScore){
+  var n = a.length, m = b.length;
+  var score = [];
+  for (var i = 0; i <= n; i++){
+    score[i] = new Array(m + 1).fill(0);
+    score[i][0] = i * gapScore;
+  }
+  for (var j = 0; j <= m; j++) score[0][j] = j * gapScore;
+
+  for (i = 1; i <= n; i++){
+    for (j = 1; j <= m; j++){
+      var diag = score[i-1][j-1] + (a[i-1] === b[j-1] ? matchScore : mismatchScore);
+      var up = score[i-1][j] + gapScore;
+      var left = score[i][j-1] + gapScore;
+      score[i][j] = Math.max(diag, up, left);
+    }
+  }
+
+  // traceback
+  var alignedA = '', alignedB = '';
+  i = n; j = m;
+  while (i > 0 || j > 0){
+    if (i > 0 && j > 0){
+      var diagScore = score[i-1][j-1] + (a[i-1] === b[j-1] ? matchScore : mismatchScore);
+      if (score[i][j] === diagScore){
+        alignedA = a[i-1] + alignedA; alignedB = b[j-1] + alignedB;
+        i--; j--; continue;
+      }
+    }
+    if (i > 0 && score[i][j] === score[i-1][j] + gapScore){
+      alignedA = a[i-1] + alignedA; alignedB = '-' + alignedB;
+      i--; continue;
+    }
+    alignedA = '-' + alignedA; alignedB = b[j-1] + alignedB;
+    j--;
+  }
+  return { alignedA: alignedA, alignedB: alignedB, score: score[n][m] };
+}
+function runAlignment(){
+  var rawA = document.getElementById('alignSeqA').value;
+  var rawB = document.getElementById('alignSeqB').value;
+  var typeChoice = document.getElementById('alignType').value;
+  var matchScore = parseFloat(document.getElementById('alignMatch').value);
+  var mismatchScore = parseFloat(document.getElementById('alignMismatch').value);
+  var gapScore = parseFloat(document.getElementById('alignGap').value);
+  if ([matchScore, mismatchScore, gapScore].some(isNaN)){ showToast('Match, mismatch and gap scores must be numbers.'); return; }
+
+  var type = typeChoice === 'auto' ? detectSeqType(rawA + rawB) : typeChoice;
+  var a = type === 'dna' ? cleanSeq(rawA) : cleanProt(rawA);
+  var b = type === 'dna' ? cleanSeq(rawB) : cleanProt(rawB);
+  if (!a || !b){ showToast('Enter two valid sequences (' + (type === 'dna' ? 'A, C, G, T' : 'standard amino acid letters') + ').'); return; }
+  var MAX_LEN = 400;
+  if (a.length > MAX_LEN || b.length > MAX_LEN){ showToast('Sequences must be ' + MAX_LEN + ' characters or fewer for in-browser alignment.'); return; }
+
+  var result = needlemanWunsch(a, b, matchScore, mismatchScore, gapScore);
+  var matches = 0, matchLine = '';
+  for (var k = 0; k < result.alignedA.length; k++){
+    if (result.alignedA[k] === '-' || result.alignedB[k] === '-'){ matchLine += ' '; }
+    else if (result.alignedA[k] === result.alignedB[k]){ matchLine += '|'; matches++; }
+    else { matchLine += '.'; }
+  }
+  var identity = (matches / result.alignedA.length * 100).toFixed(1);
+
+  document.getElementById('alignScore').textContent = result.score;
+  document.getElementById('alignIdentity').textContent = identity + '%';
+  document.getElementById('alignLength').textContent = result.alignedA.length;
+  document.getElementById('alignDetectedType').textContent = type === 'dna' ? 'DNA' : 'Protein';
+
+  var lineWidth = 60;
+  var blocks = [];
+  for (var start = 0; start < result.alignedA.length; start += lineWidth){
+    var chunkA = result.alignedA.slice(start, start + lineWidth);
+    var chunkM = matchLine.slice(start, start + lineWidth);
+    var chunkB = result.alignedB.slice(start, start + lineWidth);
+    blocks.push('A: ' + chunkA + '\n   ' + chunkM + '\nB: ' + chunkB);
+  }
+  document.getElementById('alignOutput').textContent = blocks.join('\n\n');
+  showToast('Alignment complete — ' + identity + '% identity.');
+}
+document.getElementById('alignBtn').addEventListener('click', runAlignment);
+
+/* ================= Analyzer tabs ================= */
+document.querySelectorAll('.analyzer-tab').forEach(function(tab){
+  tab.addEventListener('click', function(){
+    document.querySelectorAll('.analyzer-tab').forEach(function(t){ t.classList.remove('active'); });
+    document.querySelectorAll('.analyzer-panel').forEach(function(p){ p.classList.remove('active'); });
+    tab.classList.add('active');
+    document.getElementById('panel-' + tab.getAttribute('data-tab')).classList.add('active');
+  });
+});
+
+/* ================= PDF Analyzer (upload UX + simulated extraction) ================= */
+(function pdfAnalyzer(){
+  var dz = document.getElementById('pdfDropzone');
+  var input = document.getElementById('pdfFileInput');
+  var nameEl = document.getElementById('pdfFileName');
+  var results = document.getElementById('pdfResults');
+  dz.addEventListener('click', function(){ input.click(); });
+  dz.addEventListener('keydown', function(e){ if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); input.click(); } });
+  ['dragenter','dragover'].forEach(function(evt){ dz.addEventListener(evt, function(e){ e.preventDefault(); dz.classList.add('drag'); }); });
+  ['dragleave','drop'].forEach(function(evt){ dz.addEventListener(evt, function(e){ e.preventDefault(); dz.classList.remove('drag'); }); });
+  dz.addEventListener('drop', function(e){
+    var f = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) handleFile(f);
+  });
+  input.addEventListener('change', function(){
+    if (input.files && input.files[0]) handleFile(input.files[0]);
+  });
+  function handleFile(f){
+    if (f.type !== 'application/pdf' && !/\.pdf$/i.test(f.name)){ showToast('Please upload a PDF file.'); return; }
+    nameEl.textContent = f.name + '  ·  ' + (f.size/1024).toFixed(0) + ' KB';
+    showToast('Analyzing ' + f.name + '…');
+    setTimeout(function(){
+      document.getElementById('pdfSummary').textContent = 'This paper investigates a machine-learning approach to a biological problem, presenting methods, results and a discussion of limitations across ~' + (6 + Math.floor(Math.random()*10)) + ' pages.';
+      document.getElementById('pdfKeywords').textContent = ['bioinformatics','machine learning','sequence analysis','genomics','model validation'].slice(0, 3 + Math.floor(Math.random()*2)).join(', ');
+      document.getElementById('pdfMcq').textContent = (5 + Math.floor(Math.random()*6)) + ' questions generated';
+      document.getElementById('pdfFlash').textContent = (10 + Math.floor(Math.random()*10)) + ' cards generated';
+      document.getElementById('pdfRefs').textContent = (15 + Math.floor(Math.random()*20)) + ' references extracted';
+      results.hidden = false;
+      showToast('Analysis complete.');
+    }, 1100);
+  }
+})();
+
+/* ================= FAQ accordion ================= */
+document.querySelectorAll('.faq-item').forEach(function(item){
+  var q = item.querySelector('.faq-q');
+  var a = item.querySelector('.faq-a');
+  q.addEventListener('click', function(){
+    var isOpen = item.classList.contains('open');
+    document.querySelectorAll('.faq-item.open').forEach(function(other){
+      if (other !== item){
+        other.classList.remove('open');
+        other.querySelector('.faq-q').setAttribute('aria-expanded','false');
+        other.querySelector('.faq-a').style.maxHeight = null;
+      }
+    });
+    if (isOpen){
+      item.classList.remove('open'); q.setAttribute('aria-expanded','false'); a.style.maxHeight = null;
+    } else {
+      item.classList.add('open'); q.setAttribute('aria-expanded','true'); a.style.maxHeight = a.scrollHeight + 'px';
+    }
+  });
+});
+
+/* ================= newsletter form ================= */
+document.getElementById('newsletterForm').addEventListener('submit', function(e){
+  e.preventDefault();
+  showToast('Subscribed! Check your inbox to confirm.');
+  this.reset();
+});
+
+/* ================= 3D DNA helix (three.js) ================= */
+(function dnaHelix(){
+  var container = document.getElementById('dna-canvas');
+  if (!container || typeof THREE === 'undefined') return;
+  var w = container.clientWidth, h = container.clientHeight || 420;
+  var scene = new THREE.Scene();
+  var camera = new THREE.PerspectiveCamera(45, w/h, 0.1, 100);
+  camera.position.set(0, 0, 13);
+  var renderer;
+  try{ renderer = new THREE.WebGLRenderer({antialias:true, alpha:true}); }catch(e){ return; }
+  renderer.setSize(w, h);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  container.appendChild(renderer.domElement);
+
+  var group = new THREE.Group();
+  scene.add(group);
+  var emerald = new THREE.Color(0x2EE6A6);
+  var cobalt = new THREE.Color(0x4C8DFF);
+  var turns = 5, pointsPerTurn = 14, radius = 2.1, height = 9;
+  var strandGeoA = [], strandGeoB = [];
+  var rungMat = new THREE.LineBasicMaterial({color:0x2c3d3a, transparent:true, opacity:.55});
+
+  var sphereGeo = new THREE.SphereGeometry(0.11, 10, 10);
+  for (var i = 0; i <= turns*pointsPerTurn; i++){
+    var t = i / pointsPerTurn;
+    var angle = t * Math.PI * 2;
+    var y = height/2 - (i/(turns*pointsPerTurn)) * height;
+    var xA = Math.cos(angle) * radius, zA = Math.sin(angle) * radius;
+    var xB = Math.cos(angle+Math.PI) * radius, zB = Math.sin(angle+Math.PI) * radius;
+
+    var matA = new THREE.MeshBasicMaterial({color: emerald});
+    var sA = new THREE.Mesh(sphereGeo, matA);
+    sA.position.set(xA, y, zA);
+    group.add(sA);
+
+    var matB = new THREE.MeshBasicMaterial({color: cobalt});
+    var sB = new THREE.Mesh(sphereGeo, matB);
+    sB.position.set(xB, y, zB);
+    group.add(sB);
+
+    if (i % 2 === 0){
+      var rungGeo = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(xA,y,zA), new THREE.Vector3(xB,y,zB)
+      ]);
+      group.add(new THREE.Line(rungGeo, rungMat));
+    }
+  }
+
+  function onResize(){
+    var ww = container.clientWidth, hh = container.clientHeight;
+    if (!ww || !hh) return;
+    camera.aspect = ww/hh;
+    camera.updateProjectionMatrix();
+    renderer.setSize(ww, hh);
+  }
+  window.addEventListener('resize', onResize);
+
+  var targetRotY = 0, targetRotX = 0;
+  window.addEventListener('pointermove', function(e){
+    targetRotY = ((e.clientX / window.innerWidth) - 0.5) * 0.5;
+    targetRotX = ((e.clientY / window.innerHeight) - 0.5) * 0.25;
+  });
+
+  // Scroll-linked motion: as the hero section scrolls past, the helix
+  // spins faster and the camera dollies in — reversible in both scroll
+  // directions since it's driven directly by scroll position each frame,
+  // not by an accumulating animation. Confined to the existing hero
+  // helix; no other section or layout is touched.
+  var heroEl = document.getElementById('top');
+  var baseCameraZ = camera.position.z;
+  function scrollProgress(){
+    if (!heroEl) return 0;
+    var rect = heroEl.getBoundingClientRect();
+    if (!rect.height) return 0;
+    var scrolled = Math.min(Math.max(-rect.top, 0), rect.height);
+    return scrolled / rect.height; // 0 at top of hero, 1 once fully scrolled past
+  }
+
+  function animate(){
+    requestAnimationFrame(animate);
+    var progress = scrollProgress();
+    if (!reduceMotion){
+      group.rotation.y += 0.0055 + progress * 0.02;
+      group.rotation.y += (targetRotY) * 0.008;
+      group.rotation.x += (targetRotX - group.rotation.x) * 0.03;
+      camera.position.z = baseCameraZ - progress * 5;
+      camera.updateProjectionMatrix();
+    }
+    container.style.opacity = String(Math.max(1 - progress * 1.4, 0));
+    renderer.render(scene, camera);
+  }
+  animate();
+})();
+
+/* ================= ambient particle network ================= */
+(function particles(){
+  var canvas = document.getElementById('particle-canvas');
+  var ctx = canvas.getContext('2d');
+  var w, h, pts = [];
+  var count = reduceMotion ? 0 : (window.innerWidth < 700 ? 32 : 60);
+  function resize(){ w = canvas.width = window.innerWidth; h = canvas.height = window.innerHeight; }
+  window.addEventListener('resize', resize);
+  resize();
+  for (var i = 0; i < count; i++){
+    pts.push({x:Math.random()*w, y:Math.random()*h, vx:(Math.random()-0.5)*0.25, vy:(Math.random()-0.5)*0.25});
+  }
+  function step(){
+    ctx.clearRect(0,0,w,h);
+    for (var i = 0; i < pts.length; i++){
+      var p = pts[i];
+      p.x += p.vx; p.y += p.vy;
+      if (p.x < 0 || p.x > w) p.vx *= -1;
+      if (p.y < 0 || p.y > h) p.vy *= -1;
+      ctx.beginPath(); ctx.arc(p.x, p.y, 1.4, 0, Math.PI*2);
+      ctx.fillStyle = 'rgba(46,230,166,.5)'; ctx.fill();
+      for (var j = i+1; j < pts.length; j++){
+        var q = pts[j], dx = p.x-q.x, dy = p.y-q.y, dist = Math.sqrt(dx*dx+dy*dy);
+        if (dist < 140){
+          ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(q.x,q.y);
+          ctx.strokeStyle = 'rgba(76,141,255,' + (0.12*(1-dist/140)) + ')'; ctx.lineWidth = 1; ctx.stroke();
+        }
+      }
+    }
+    requestAnimationFrame(step);
+  }
+  if (count > 0) step();
+})();
+
+/* ================= blob parallax ================= */
+(function blobParallax(){
+  if (reduceMotion) return;
+  var blobs = document.querySelectorAll('.blob');
+  window.addEventListener('pointermove', function(e){
+    var nx = (e.clientX / window.innerWidth) - 0.5;
+    var ny = (e.clientY / window.innerHeight) - 0.5;
+    blobs.forEach(function(b){
+      var depth = parseFloat(b.getAttribute('data-depth')) || 20;
+      b.style.transform = 'translate(' + (nx*depth) + 'px,' + (ny*depth) + 'px)';
+    });
+  });
+})();
+
+/* ================= scroll reveal ================= */
+(function scrollReveal(){
+  var els = document.querySelectorAll('.reveal');
+  if (!('IntersectionObserver' in window) || reduceMotion){
+    els.forEach(function(el){ el.classList.add('in-view'); });
+    return;
+  }
+  var io = new IntersectionObserver(function(entries){
+    entries.forEach(function(entry){
+      if (entry.isIntersecting){ entry.target.classList.add('in-view'); io.unobserve(entry.target); }
+    });
+  }, {threshold:0.12, rootMargin:'0px 0px -40px 0px'});
+  els.forEach(function(el){ io.observe(el); });
+})();
+</script>
+</body>
+</html>
