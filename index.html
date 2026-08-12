@@ -296,6 +296,8 @@ textarea.seq-input:focus{outline:none; border-color:var(--emerald);}
 .calc-field select:focus{outline:none; border-color:var(--emerald);}
 .copy-row{display:flex; align-items:flex-start; gap:12px; flex-wrap:wrap;}
 .copy-row .output-block{flex:1 1 260px; margin-top:0;}
+.align-output{max-height:260px;}
+.align-output pre{margin:0; font-family:'JetBrains Mono',monospace; font-size:12px; line-height:1.6; color:var(--ink); white-space:pre; overflow-x:auto;}
 
 /* ---------- research ---------- */
 .research-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:22px; margin-top:16px;}
@@ -511,6 +513,7 @@ footer{padding:64px 0 34px; border-top:1px solid var(--edge-soft);}
       <button class="analyzer-tab" data-tab="calc">Lab Calculator</button>
       <button class="analyzer-tab" data-tab="primer">Primer Designer</button>
       <button class="analyzer-tab" data-tab="citation">Citation Generator</button>
+      <button class="analyzer-tab" data-tab="align">Sequence Alignment</button>
     </div>
 
     <div class="glass reveal">
@@ -658,6 +661,25 @@ footer{padding:64px 0 34px; border-top:1px solid var(--edge-soft);}
           <div class="output-block glass"><b>Formatted Citation</b><span id="citOutput">—</span></div>
           <button class="btn btn-ghost btn-sm" id="citCopyBtn">Copy</button>
         </div>
+      </div>
+
+      <!-- Sequence Alignment -->
+      <div class="analyzer-panel" id="panel-align">
+        <div class="seq-input-row">
+          <textarea class="seq-input mono" id="alignSeqA" spellcheck="false" placeholder="Sequence A">GATTACAGATTACA</textarea>
+          <textarea class="seq-input mono" id="alignSeqB" spellcheck="false" placeholder="Sequence B">GATCACAGATCACA</textarea>
+        </div>
+        <div class="calc-fields" style="margin-top:16px;">
+          <label class="calc-field"><span>Match Score</span><input type="number" id="alignMatch" value="1" step="1"></label>
+          <label class="calc-field"><span>Mismatch Penalty</span><input type="number" id="alignMismatch" value="-1" step="1"></label>
+          <label class="calc-field"><span>Gap Penalty</span><input type="number" id="alignGap" value="-2" step="1"></label>
+        </div>
+        <button class="btn btn-primary btn-sm" id="calcAlignBtn">Align Sequences</button>
+        <div class="analysis-grid">
+          <div class="stat-tile glass"><div class="st-label">Alignment Score</div><div class="st-value" id="alignScore">—</div></div>
+          <div class="stat-tile glass"><div class="st-label">Identity</div><div class="st-value" id="alignIdentity">—</div></div>
+        </div>
+        <div class="output-block glass align-output"><b>Aligned Sequences</b><pre id="alignOutput">Run an alignment to see the result here.</pre></div>
       </div>
     </div>
   </div>
@@ -960,7 +982,7 @@ var toolsGrid = document.getElementById('toolsGrid');
 // section (#analyzers) — DNA and Protein have real, working engines there;
 // Paper Summarizer routes to the PDF tab, which is a UI/UX preview with
 // simulated results (flagged to the user via a toast, not presented as real).
-var toolAnalyzerTab = { 'DNA Analyzer': 'dna', 'Protein Analyzer': 'protein', 'Paper Summarizer': 'pdf', 'Lab Calculator': 'calc', 'Primer Designer': 'primer', 'Citation Generator': 'citation' };
+var toolAnalyzerTab = { 'DNA Analyzer': 'dna', 'Protein Analyzer': 'protein', 'Paper Summarizer': 'pdf', 'Lab Calculator': 'calc', 'Primer Designer': 'primer', 'Citation Generator': 'citation', 'Sequence Alignment': 'align' };
 
 function scrollToAnalyzerTab(tabKey){
   var tabBtn = document.querySelector('.analyzer-tab[data-tab="' + tabKey + '"]');
@@ -1300,6 +1322,73 @@ document.getElementById('citCopyBtn').addEventListener('click', function(){
     showToast('Could not copy automatically — select and copy the text manually.');
   });
 });
+
+/* ================= Sequence Alignment (real logic, Needleman-Wunsch) ================= */
+function needlemanWunsch(a, b, matchScore, mismatchScore, gapScore){
+  var n = a.length, m = b.length;
+  var dp = [];
+  for (var i = 0; i <= n; i++) dp.push(new Array(m + 1).fill(0));
+  for (var i = 1; i <= n; i++) dp[i][0] = dp[i-1][0] + gapScore;
+  for (var j = 1; j <= m; j++) dp[0][j] = dp[0][j-1] + gapScore;
+  for (var i = 1; i <= n; i++){
+    for (var j = 1; j <= m; j++){
+      var diag = dp[i-1][j-1] + (a[i-1] === b[j-1] ? matchScore : mismatchScore);
+      var up = dp[i-1][j] + gapScore;
+      var left = dp[i][j-1] + gapScore;
+      dp[i][j] = Math.max(diag, up, left);
+    }
+  }
+  var alignedA = '', alignedB = '', i = n, j = m;
+  while (i > 0 && j > 0){
+    var current = dp[i][j];
+    var diag = dp[i-1][j-1] + (a[i-1] === b[j-1] ? matchScore : mismatchScore);
+    if (current === diag){
+      alignedA = a[i-1] + alignedA; alignedB = b[j-1] + alignedB; i--; j--;
+    } else if (current === dp[i-1][j] + gapScore){
+      alignedA = a[i-1] + alignedA; alignedB = '-' + alignedB; i--;
+    } else {
+      alignedA = '-' + alignedA; alignedB = b[j-1] + alignedB; j--;
+    }
+  }
+  while (i > 0){ alignedA = a[i-1] + alignedA; alignedB = '-' + alignedB; i--; }
+  while (j > 0){ alignedA = '-' + alignedA; alignedB = b[j-1] + alignedB; j--; }
+  return { alignedA: alignedA, alignedB: alignedB, score: dp[n][m] };
+}
+function runAlignment(){
+  var a = (document.getElementById('alignSeqA').value || '').toUpperCase().replace(/\s+/g, '');
+  var b = (document.getElementById('alignSeqB').value || '').toUpperCase().replace(/\s+/g, '');
+  var matchScore = parseFloat(document.getElementById('alignMatch').value) || 0;
+  var mismatchScore = parseFloat(document.getElementById('alignMismatch').value) || 0;
+  var gapScore = parseFloat(document.getElementById('alignGap').value) || 0;
+
+  if (!a || !b){ showToast('Enter both sequences to align.'); return; }
+  if (a.length > 3000 || b.length > 3000){ showToast('Keep each sequence under 3000 characters for in-browser alignment.'); return; }
+
+  var result = needlemanWunsch(a, b, matchScore, mismatchScore, gapScore);
+  var matches = 0, matchLine = '';
+  for (var k = 0; k < result.alignedA.length; k++){
+    var ca = result.alignedA[k], cb = result.alignedB[k];
+    if (ca === cb && ca !== '-'){ matchLine += '|'; matches++; }
+    else if (ca === '-' || cb === '-'){ matchLine += ' '; }
+    else { matchLine += '.'; }
+  }
+  var identity = result.alignedA.length ? (matches / result.alignedA.length * 100) : 0;
+
+  document.getElementById('alignScore').textContent = result.score;
+  document.getElementById('alignIdentity').textContent = identity.toFixed(1) + '%';
+
+  var lineWidth = 60, blocks = [];
+  for (var k = 0; k < result.alignedA.length; k += lineWidth){
+    blocks.push(
+      result.alignedA.slice(k, k + lineWidth) + '\n' +
+      matchLine.slice(k, k + lineWidth) + '\n' +
+      result.alignedB.slice(k, k + lineWidth)
+    );
+  }
+  document.getElementById('alignOutput').textContent = blocks.join('\n\n');
+  showToast('Sequences aligned.');
+}
+document.getElementById('calcAlignBtn').addEventListener('click', runAlignment);
 
 /* ================= Analyzer tabs ================= */
 document.querySelectorAll('.analyzer-tab').forEach(function(tab){
