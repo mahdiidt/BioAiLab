@@ -211,7 +211,7 @@ h1.hero-title{font-size:clamp(38px,5.4vw,62px); line-height:1.06;}
 
 /* ---------- tools grid ---------- */
 .tools-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:20px; margin-top:16px;}
-.tool-card{padding:28px; display:flex; flex-direction:column; gap:14px; position:relative; overflow:hidden;}
+.tool-card{padding:28px; display:flex; flex-direction:column; gap:14px; position:relative; overflow:hidden; cursor:pointer;}
 .tool-icon{width:46px; height:46px; border-radius:12px; display:flex; align-items:center; justify-content:center; background:linear-gradient(135deg,rgba(46,230,166,.18),rgba(76,141,255,.1)); border:1px solid var(--edge);}
 .tool-icon svg{width:22px; height:22px; stroke:var(--emerald);}
 .tool-card h3{font-size:17px;}
@@ -296,6 +296,17 @@ textarea.seq-input:focus{outline:none; border-color:var(--emerald);}
 .calc-field select:focus{outline:none; border-color:var(--emerald);}
 .copy-row{display:flex; align-items:flex-start; gap:12px; flex-wrap:wrap;}
 .copy-row .output-block{flex:1 1 260px; margin-top:0;}
+.gene-search-row{display:flex; gap:12px; flex-wrap:wrap;}
+.gene-search-row input{flex:1 1 260px; background:var(--panel-2); border:1px solid var(--edge); border-radius:100px; padding:13px 20px; color:var(--ink); font-family:'JetBrains Mono',monospace; font-size:14px;}
+.gene-search-row input:focus{outline:none; border-color:var(--emerald);}
+.gene-results{display:flex; flex-direction:column; gap:14px; margin-top:22px;}
+.gene-card{padding:20px;}
+.gene-card-head{display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;}
+.gene-card-head b{font-family:'JetBrains Mono',monospace; font-size:15px; color:var(--emerald);}
+.gene-card-head span{font-size:13.5px; color:var(--ink-dim);}
+.gene-meta{display:flex; gap:14px; flex-wrap:wrap; font-size:12px; color:var(--ink-dim); margin-top:8px; font-family:'JetBrains Mono',monospace;}
+.gene-summary{font-size:13px; color:var(--ink-dim); line-height:1.6; margin-top:10px;}
+.gene-link{margin-top:10px; display:inline-flex; font-size:13px; color:var(--cobalt); font-weight:600;}
 .align-output{max-height:260px;}
 .align-output pre{margin:0; font-family:'JetBrains Mono',monospace; font-size:12px; line-height:1.6; color:var(--ink); white-space:pre; overflow-x:auto;}
 
@@ -514,6 +525,7 @@ footer{padding:64px 0 34px; border-top:1px solid var(--edge-soft);}
       <button class="analyzer-tab" data-tab="primer">Primer Designer</button>
       <button class="analyzer-tab" data-tab="citation">Citation Generator</button>
       <button class="analyzer-tab" data-tab="align">Sequence Alignment</button>
+      <button class="analyzer-tab" data-tab="gene">Gene Explorer</button>
     </div>
 
     <div class="glass reveal">
@@ -680,6 +692,16 @@ footer{padding:64px 0 34px; border-top:1px solid var(--edge-soft);}
           <div class="stat-tile glass"><div class="st-label">Identity</div><div class="st-value" id="alignIdentity">—</div></div>
         </div>
         <div class="output-block glass align-output"><b>Aligned Sequences</b><pre id="alignOutput">Run an alignment to see the result here.</pre></div>
+      </div>
+
+      <!-- Gene Explorer -->
+      <div class="analyzer-panel" id="panel-gene">
+        <p class="calc-note">Live search against NCBI's public Gene database — real gene records, not simulated.</p>
+        <div class="gene-search-row">
+          <input type="text" id="geneQuery" placeholder="e.g. TP53 human, or BRCA1" autocomplete="off">
+          <button class="btn btn-primary btn-sm" id="geneSearchBtn">Search</button>
+        </div>
+        <div class="gene-results" id="geneResults"></div>
       </div>
     </div>
   </div>
@@ -982,7 +1004,18 @@ var toolsGrid = document.getElementById('toolsGrid');
 // section (#analyzers) — DNA and Protein have real, working engines there;
 // Paper Summarizer routes to the PDF tab, which is a UI/UX preview with
 // simulated results (flagged to the user via a toast, not presented as real).
-var toolAnalyzerTab = { 'DNA Analyzer': 'dna', 'Protein Analyzer': 'protein', 'Paper Summarizer': 'pdf', 'Lab Calculator': 'calc', 'Primer Designer': 'primer', 'Citation Generator': 'citation', 'Sequence Alignment': 'align' };
+var toolAnalyzerTab = { 'DNA Analyzer': 'dna', 'Protein Analyzer': 'protein', 'Paper Summarizer': 'pdf', 'Lab Calculator': 'calc', 'Primer Designer': 'primer', 'Citation Generator': 'citation', 'Sequence Alignment': 'align', 'Gene Explorer': 'gene' };
+
+// These four tools are inherently AI-driven (not deterministic math like
+// the analyzers above), so instead of building four separate engines they
+// route to the real, working Bio Copilot with a starter prompt pre-filled
+// (never auto-sent — the user reviews/edits it before sending).
+var toolCopilotPrompt = {
+  'Scientific Translator': 'Translate the following text into English and preserve the scientific terminology precisely:\n\n',
+  'Research Assistant': 'Help me do a literature review on the following topic, including key papers and open questions:\n\n',
+  'Quiz Generator': 'Create a 5-question quiz (with answers) to help me study the following topic:\n\n',
+  'Flashcards AI': 'Create 10 flashcards (term + definition) for studying the following topic:\n\n'
+};
 
 function scrollToAnalyzerTab(tabKey){
   var tabBtn = document.querySelector('.analyzer-tab[data-tab="' + tabKey + '"]');
@@ -1006,11 +1039,15 @@ tools.forEach(function(t, i){
     '<div class="tool-icon"><svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7">' + toolIcons[t.icon] + '</svg></div>' +
     '<h3>' + t.name + '</h3><p>' + t.desc + '</p>' +
     '<span class="tool-open">Open Tool →</span>';
-  card.querySelector('.tool-open').addEventListener('click', function(){
+  card.addEventListener('click', function(){
     // Bio Copilot already has a real, working page wired to the live
     // backend — send this card straight there instead of a placeholder toast.
     if (t.name === 'Bio Copilot'){
       window.location.href = 'copilot.html';
+      return;
+    }
+    if (toolCopilotPrompt[t.name]){
+      window.location.href = 'copilot.html?prompt=' + encodeURIComponent(toolCopilotPrompt[t.name]);
       return;
     }
     // DNA Analyzer / Protein Analyzer / Paper Summarizer already have a
@@ -1389,6 +1426,68 @@ function runAlignment(){
   showToast('Sequences aligned.');
 }
 document.getElementById('calcAlignBtn').addEventListener('click', runAlignment);
+
+/* ================= Gene Explorer (real data, live from NCBI via our backend) ================= */
+// Same backend as Bio Copilot (js/copilot.js) — the browser can't call
+// NCBI directly (CORS), so this goes through our own /api/genes route,
+// which is the only new addition on the backend for this tool.
+var GENE_API_BASE = 'https://bioailab.onrender.com';
+
+function escapeHtmlText(str){
+  var div = document.createElement('div');
+  div.textContent = str || '';
+  return div.innerHTML;
+}
+function renderGeneResults(genes){
+  var container = document.getElementById('geneResults');
+  container.innerHTML = '';
+  if (!genes.length){
+    container.innerHTML = '<div class="output-block glass">No genes found for that search — try a different term (e.g. a gene symbol plus organism, like "TP53 human").</div>';
+    return;
+  }
+  genes.forEach(function(g){
+    var card = document.createElement('div');
+    card.className = 'gene-card glass';
+    var meta = [];
+    if (g.organism) meta.push('<span>' + escapeHtmlText(g.organism) + '</span>');
+    if (g.chromosome) meta.push('<span>Chr ' + escapeHtmlText(g.chromosome) + '</span>');
+    if (g.mapLocation) meta.push('<span>' + escapeHtmlText(g.mapLocation) + '</span>');
+    card.innerHTML =
+      '<div class="gene-card-head"><b>' + escapeHtmlText(g.symbol || '—') + '</b><span>' + escapeHtmlText(g.name) + '</span></div>' +
+      (meta.length ? '<div class="gene-meta">' + meta.join('') + '</div>' : '') +
+      (g.summary ? '<p class="gene-summary">' + escapeHtmlText(g.summary) + '</p>' : '') +
+      '<a class="gene-link" href="' + g.url + '" target="_blank" rel="noopener">View on NCBI ↗</a>';
+    container.appendChild(card);
+  });
+}
+function runGeneSearch(){
+  var query = document.getElementById('geneQuery').value.trim();
+  var btn = document.getElementById('geneSearchBtn');
+  var container = document.getElementById('geneResults');
+  if (!query){ showToast('Type a gene name or symbol to search.'); return; }
+
+  btn.disabled = true;
+  container.innerHTML = '<div class="output-block glass">Searching NCBI…</div>';
+
+  fetch(GENE_API_BASE + '/api/genes?q=' + encodeURIComponent(query))
+    .then(function(res){ return res.json().then(function(data){ return { ok: res.ok, data: data }; }); })
+    .then(function(result){
+      if (!result.ok || (result.data && result.data.error)){
+        var msg = (result.data && result.data.error && result.data.error.message) || 'Something went wrong searching genes.';
+        container.innerHTML = '<div class="output-block glass">' + escapeHtmlText(msg) + '</div>';
+        return;
+      }
+      renderGeneResults(result.data.genes || []);
+    })
+    .catch(function(){
+      container.innerHTML = '<div class="output-block glass">Could not reach the gene search backend. Make sure it\'s online and try again.</div>';
+    })
+    .finally(function(){ btn.disabled = false; });
+}
+document.getElementById('geneSearchBtn').addEventListener('click', runGeneSearch);
+document.getElementById('geneQuery').addEventListener('keydown', function(e){
+  if (e.key === 'Enter'){ e.preventDefault(); runGeneSearch(); }
+});
 
 /* ================= Analyzer tabs ================= */
 document.querySelectorAll('.analyzer-tab').forEach(function(tab){
