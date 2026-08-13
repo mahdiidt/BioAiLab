@@ -690,4 +690,21 @@
   renderHistory();
   renderMessages();
   updateSendButtonState();
+
+  // Optional starter prompt from the URL (?prompt=...), used by AI
+  // Workspace cards (e.g. Scientific Translator, Quiz Generator) that link
+  // here with a suggested starting point. Only pre-fills the input — never
+  // auto-sent — so the user reviews/edits it before sending it themselves.
+  (function prefillFromQuery(){
+    try {
+      var params = new URLSearchParams(window.location.search);
+      var prompt = params.get('prompt');
+      if (prompt) {
+        chatInput.value = prompt;
+        autoGrowInput();
+        updateSendButtonState();
+        chatInput.focus();
+      }
+    } catch (err) { /* URLSearchParams unsupported or malformed query — ignore */ }
+  })();
 })();
