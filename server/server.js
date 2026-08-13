@@ -3,6 +3,7 @@ const cors = require('cors');
 
 const config = require('./config');
 const chatRouter = require('./routes/chat');
+const geneRouter = require('./routes/gene');
 const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
@@ -28,6 +29,7 @@ app.get('/api/health', (req, res) => {
 });
 
 app.use('/api/chat', chatRouter);
+app.use('/api/genes', geneRouter);
 
 // 404 for anything else under /api
 app.use('/api', (req, res) => {
